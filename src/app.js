@@ -263,11 +263,31 @@ const sansCherLbl = () => $('sansCher').checked
   ? 'les 10 % les plus chères du secteur sont masquées'
   : 'rouge = les 10 % les plus chères du secteur';
 
-// Emprise interrogee : les bornes de la carte (ou, sans carte, la France entiere).
+// Emprise interrogee. BUG CORRIGE (phase 1) : au chargement, la carte peut n'avoir
+// aucune taille (conteneur pas encore mis en page, page ouverte dans un cadre ou un
+// panneau masque) ; ses bornes se reduisent alors a une ligne (sud = nord) et le flux
+// repond HTTP 400 a cette bbox degeneree — trois fois (chargement initial, moveend,
+// retour de la geolocalisation), d'ou « hors ligne » alors que le premier geste, fait
+// sur une carte enfin dimensionnee, reussissait. Desormais : une bbox n'est envoyee
+// que si elle est finie et non degeneree ; sinon on interroge autour du repere, et la
+// carte relance un chargement des qu'elle recoit sa taille (evenement resize).
+let empriseProvisoire = false;
 function emprise(){
-  if(!map) return {s: 41.2, n: 51.3, w: -5.5, e: 9.8};
-  const b = map.getBounds();
-  return {s: b.getSouth(), n: b.getNorth(), w: b.getWest(), e: b.getEast()};
+  if(map){
+    const c = map.getContainer();
+    if(c.clientWidth > 0 && c.clientHeight > 0){
+      const b = map.getBounds();
+      const s = b.getSouth(), n = b.getNorth(), w = b.getWest(), e = b.getEast();
+      if([s, n, w, e].every(Number.isFinite) && n - s > 1e-4 && e - w > 1e-4){
+        empriseProvisoire = false;
+        return {s: Math.max(-85, s), n: Math.min(85, n), w: Math.max(-180, w), e: Math.min(180, e)};
+      }
+    }
+  }
+  empriseProvisoire = true;
+  if(ZOOM0 < 10) return {s: 41.2, n: 51.3, w: -5.5, e: 9.8};     // France entiere
+  const dLat = 0.05, dLon = 0.05 / Math.cos(CENTRE[0] * Math.PI / 180);   // ~5 km
+  return {s: CENTRE[0] - dLat, n: CENTRE[0] + dLat, w: CENTRE[1] - dLon, e: CENTRE[1] + dLon};
 }
 const dansEmprise = (b, la, lo) => la >= b.s && la <= b.n && lo >= b.w && lo <= b.e;
 
@@ -777,7 +797,7 @@ function emprisesTrace(margeKm){
 
 async function charger(){
   const mien = ++seq;
-  // Hors itineraire : l'emprise de l'ecran. En itineraire :
+  // Hors itineraire : l'emprise de l'ecran (validee, voir emprise()). En itineraire :
   // une suite d'emprises courtes le long du trace, pour ne rien manquer sur un long trajet.
   const zones = ROUTE ? emprisesTrace(20)   // toujours le couloir maxi : la largeur
                       : [emprise()];
@@ -827,6 +847,9 @@ if(map){
     clearTimeout(minuteur);
     minuteur = setTimeout(charger, 400);
   });
+  // La carte recoit (enfin) une taille : si le dernier chargement s'est fait sur une
+  // emprise de secours, on recharge sur la vraie (cf. emprise()).
+  map.on('resize', () => { if(empriseProvisoire && !ROUTE){ clearTimeout(minuteur); minuteur = setTimeout(charger, 100); } });
 }
 $('couloir').onchange = () => { reglagesEcrits(); if(ROUTE) rendu(); };
 $('conso').onchange = $('cuve').onchange = $('autonomie').onchange =
