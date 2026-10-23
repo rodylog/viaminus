@@ -117,11 +117,13 @@
   .panneau[data-cran="moitie"]{height:50dvh}
   .panneau[data-cran="plein"]{height:calc(100dvh - var(--haut) - 12px - var(--pad-haut))}
   .panneau.glisse{transition:none}
-  .poignee{flex:none;width:100%;height:22px;background:none;border:0;display:grid;place-items:center;
-           cursor:grab;touch-action:none;padding:0}
+  /* Poignee : cible tactile de 44 px (correctif du 23/10/2026, avant 22 px) ; la barre
+     visuelle de 40 x 5 reste en haut, le cran « apercu » (96 px) garde titre et etat visibles. */
+  .poignee{flex:none;width:100%;height:44px;background:none;border:0;display:grid;place-items:start center;
+           cursor:grab;touch-action:none;padding:8px 0 0}
   .poignee::before{content:"";width:40px;height:5px;border-radius:3px;background:var(--line)}
   .poignee:focus-visible{outline-offset:-2px}
-  .panneau-tete{flex:none;display:flex;align-items:center;gap:4px;padding:0 8px 6px 16px;touch-action:none}
+  .panneau-tete{flex:none;display:flex;align-items:center;gap:4px;padding:0 8px 4px 16px;touch-action:none}
   .panneau-titre{flex:1;min-width:0}
   #lieu{font-weight:450;color:var(--muted)}
   .etat{margin:0;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -132,7 +134,7 @@
   .bloc-plan{margin:4px 0 14px;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:var(--card)}
   .bloc-plan-tete{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px}
   #plan{font-size:13.5px;line-height:1.7}
-  .inter{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer;min-height:32px}
+  .inter{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer;min-height:44px}
   .inter.grande{display:flex;flex-wrap:wrap;margin:6px 0 12px;font-size:14.5px}
   .inter.grande small{flex:1 1 100%;color:var(--muted);font-size:12.5px;padding-left:48px}
   .inter input{appearance:none;width:40px;height:24px;margin:0;border-radius:12px;background:var(--line);
