@@ -16,14 +16,39 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   (nom|carburants|conso|réservoir|réserve), autonomie en 6ᵉ champ facultatif : `…|30|600`.
 - **Plan de pleins optimal** (problème de la station-service, programmation
   dynamique avant/arrière) : où s'arrêter en partant plein, détours facturés en
-  carburant ET en minutes, pénalité par arrêt, coût du voyage complet,
-  comparatif selon la largeur du couloir, « plein du retour ».
+  carburant ET en minutes, pénalité par arrêt. Carte-héros : le **carburant du
+  voyage** en chiffre (plein de départ compris), « 2 arrêts · ≈ 14 min · −6,40 €
+  vs pleins au prix médian » (référence = le même calcul sur les mêmes stations,
+  tous les prix remplacés par la médiane du couloir), ligne de temps verticale
+  (départ, étapes avec « Y aller », arrivée, retour), mini-barres par couloir
+  (toucher une barre change le couloir), états dessinés (infaisable avec trois
+  remèdes, aucun arrêt nécessaire, véhicule à compléter).
+- **Aller-retour** : case du formulaire ; le retour est un second itinéraire IGN,
+  le plan couvre la boucle (une station proche des deux sens compte deux fois),
+  le plein du retour devient une étape, le tracé montre l'aller et le retour,
+  les trajets mémorisés retiennent l'option (« Paris ⇄ Lyon »).
+- **Partage du plan** : `fuelpilot.html#trajet=<départ>|<arrivée>|<couloir>|<options>&veh=…`
+  — départ et arrivée tels que saisis (`encodeURIComponent` ; départ vide =
+  « Ma position », jamais une coordonnée), couloir ∈ {1, 2, 5, 10, 20}, options
+  = lettres `p` (sans péage) et `r` (aller-retour), puis la fiche véhicule au
+  format `#veh=` (traitée en premier). Partage natif quand il existe, sinon
+  copie du lien. Même bouton dans le garage pour la fiche (`#veh=`).
+- **Assistant véhicule** au premier lancement (aucun réglage mémorisé, ni
+  `#veh=` ni `#trajet=` dans l'URL) : trois écrans — véhicule (type, catégorie,
+  carburants, autonomie d'un plein demandée en premier, conso connue ou
+  **estimée**), position, c'est prêt — « Passer » à chaque écran ; accessible
+  ensuite par le bouton « Assistant » du garage. Estimation de conso
+  (`src/conso.js`) : médianes du catalogue ADEME Car Labelling (14/10/2026) par
+  catégorie, E85 = essence × 1,25, GPL = essence × 1,20 ; utilitaire,
+  camping-car, scooter et moto = ordres de grandeur dits « estimation large » ;
+  hybrides sans estimation. Le garage reprend type et catégorie, bouton
+  « Estimer » à côté de la conso, suppression avec « Annuler ».
 - **Itinéraire** : géocodage Base Adresse Nationale + tracé Géoplateforme IGN,
   option **sans péage** (moteur `bdtopo-pgr`, autoroutes exclues), couloir
   1-20 km, les stations suivent le zoom ; flèche **⇄** entre les deux champs pour
   inverser départ et arrivée (trajet retour recalculé d'un clic).
-- **Sécurité** : toute chaîne venue de l'extérieur (flux des stations, URL `#veh=`)
-  est échappée à l'ingestion ; Content-Security-Policy calculée à la génération
+- **Sécurité** : toute chaîne venue de l'extérieur (flux des stations, URL `#veh=`,
+  `#trajet=`) est échappée à l'ingestion ou rendue en texte (jamais en HTML) ; Content-Security-Policy calculée à la génération
   (scripts autorisés par empreinte SHA-256, pas d'`unsafe-inline`, `connect-src`
   borné aux trois API publiques). Rien ne s'exécute côté serveur : un fichier
   statique servi en https suffit.
@@ -65,18 +90,20 @@ Le gabarit vit dans `src/` et `generate.py` l'assemble en un seul fichier :
 |---|---|
 | `src/index.html` | structure de la page (`__APP_CSS__`, `__APP_JS__` = points d'insertion) |
 | `src/app.css` | styles ; jetons dans `:root` (couleurs métier, surfaces, rayons), mode sombre, mise en page mobile / bureau |
-| `src/plan.js` | algorithme du plan de pleins, pur, exporté pour Node |
+| `src/plan.js` | algorithme du plan de pleins (DP, coût du voyage, médiane, économie), pur, exporté pour Node |
+| `src/conso.js` | table de consommation embarquée (`estimerConso`), pure, exportée pour Node |
 | `src/ui/icones.js` | icônes SVG inline (jeu Lucide, MIT) : `ico('nom')` |
 | `src/ui/feuilles.js` | feuille glissante à trois crans (mobile), feuilles modales, Échap, focus |
-| `src/ui/fond.js` | carte MapLibre : style IGN vectoriel, transformation sombre, orthophoto, repli raster IGN puis OSM, WebGL absent |
-| `src/app.js` | données, rendu (marqueurs, liste, plan), garage, itinéraire, position, menus |
-| `src/plan.test.js` | tests de l'algorithme |
+| `src/ui/fond.js` | carte MapLibre : créée sans style, style IGN vectoriel posé une seule fois, transformation sombre, orthophoto, repli raster IGN puis OSM, WebGL absent |
+| `src/ui/assistant.js` | assistant véhicule en trois écrans (`creerAssistant(ctx)`) |
+| `src/app.js` | données, rendu (marqueurs, liste, carte-héros du plan), garage, itinéraire (aller-retour), partage, import par l'URL, position, menus |
+| `src/plan.test.js`, `src/conso.test.js` | tests des modules purs |
 
 Les scripts sont assemblés dans l'ordre de `SCRIPTS` (`generate.py`) en un seul
-`<script>` : `plan.js`, `ui/*.js`, puis `app.js`.
+`<script>` : `plan.js`, `conso.js`, `ui/*.js`, puis `app.js`.
 
 ```bash
-node --test src/plan.test.js   # tests de l'algorithme (Node ≥ 20)
+node --test src/plan.test.js src/conso.test.js   # tests des modules purs (Node ≥ 20)
 ```
 
 La CSP est recalculée à chaque génération à partir des scripts réellement inline
