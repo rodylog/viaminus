@@ -56,7 +56,7 @@ MAPLIBRE = {
         "sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp"),
 }
 # Scripts du gabarit, dans l'ordre d'assemblage (un seul <script> a la fin de la page).
-SCRIPTS = ["plan.js", "ui/icones.js", "ui/feuilles.js", "ui/fond.js", "app.js"]
+SCRIPTS = ["plan.js", "conso.js", "ui/icones.js", "ui/feuilles.js", "ui/fond.js", "app.js"]
 
 
 def _get(url, raw=False):
