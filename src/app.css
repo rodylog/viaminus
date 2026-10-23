@@ -4,6 +4,7 @@
      noir = reperes du plan. Pas de marron ni d'ardoise. */
   :root{--bg:#f6f7f9;--card:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e3e6ea;
         --bleu:#0b57d0;--rouge:#c02626;--vert:#158a3f;--vert-2:#0f6e30;--noir:#111827;
+        --repere:#111827;--eco:#0f6e30;
         --surface:rgba(255,255,255,.88);--surface-2:rgba(255,255,255,.97);
         --ombre:0 8px 30px rgba(0,0,0,.14);--ombre-2:0 2px 10px rgba(0,0,0,.12);
         --voile:rgba(0,0,0,.35);--sur-carte:#fff;
@@ -14,11 +15,13 @@
   @media (prefers-color-scheme:dark){
     :root:not([data-theme="clair"]){--bg:#0f1115;--card:#1a1d23;--ink:#e9ecef;--muted:#9aa3ad;--line:#2c3238;
       --surface:rgba(26,29,35,.88);--surface-2:rgba(26,29,35,.97);--voile:rgba(0,0,0,.55);
-      --ombre:0 8px 30px rgba(0,0,0,.5);--ombre-2:0 2px 10px rgba(0,0,0,.4);--sur-carte:#1a1d23}
+      --ombre:0 8px 30px rgba(0,0,0,.5);--ombre-2:0 2px 10px rgba(0,0,0,.4);--sur-carte:#1a1d23;
+      --repere:#e9ecef;--eco:#5fcf8b}
   }
   :root[data-theme="sombre"]{--bg:#0f1115;--card:#1a1d23;--ink:#e9ecef;--muted:#9aa3ad;--line:#2c3238;
     --surface:rgba(26,29,35,.88);--surface-2:rgba(26,29,35,.97);--voile:rgba(0,0,0,.55);
-    --ombre:0 8px 30px rgba(0,0,0,.5);--ombre-2:0 2px 10px rgba(0,0,0,.4);--sur-carte:#1a1d23}
+    --ombre:0 8px 30px rgba(0,0,0,.5);--ombre-2:0 2px 10px rgba(0,0,0,.4);--sur-carte:#1a1d23;
+    --repere:#e9ecef;--eco:#5fcf8b}
 
   *{box-sizing:border-box}
   html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none}
@@ -125,15 +128,70 @@
   .poignee:focus-visible{outline-offset:-2px}
   .panneau-tete{flex:none;display:flex;align-items:center;gap:4px;padding:0 8px 4px 16px;touch-action:none}
   .panneau-titre{flex:1;min-width:0}
+  .panneau-titre h2{line-height:1.3}
   #lieu{font-weight:450;color:var(--muted)}
   .etat{margin:0;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .etat .ko{color:var(--rouge)}
   .panneau-corps{flex:1;min-height:0;overflow:auto;padding:0 16px calc(16px + var(--pad-bas));
                  overscroll-behavior:contain;scroll-padding-top:8px}
 
-  .bloc-plan{margin:4px 0 14px;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:var(--card)}
-  .bloc-plan-tete{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px}
-  #plan{font-size:13.5px;line-height:1.7}
+  /* ---------- Carte-heros du plan (phase 2, 23/10/2026) ----------
+     Chiffre-heros = carburant du voyage ; ligne de temps verticale (reperes noirs, prix
+     en palette metier) ; mini-barres par couloir (boutons >= 44 px). */
+  .bloc-plan{margin:0 0 14px;padding:8px 12px 8px;border:1px solid var(--line);border-radius:14px;background:var(--card)}
+  .bloc-plan-tete{display:flex;align-items:baseline;justify-content:space-between;gap:4px 10px;flex-wrap:wrap}
+  .bloc-plan-tete h3{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+  .plan-meta{font-size:12.5px;color:var(--muted);white-space:nowrap}
+  .bloc-plan-pied{display:flex;align-items:center;justify-content:space-between;gap:4px 10px;flex-wrap:wrap;margin-top:4px}
+  .visuellement-cache{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+  .heros{font-size:13.5px;line-height:1.45}
+  .heros-chiffre{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin:4px 0 0}
+  .heros-chiffre b{font-size:32px;font-weight:600;line-height:1.05;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .heros-chiffre span{color:var(--muted)}
+  .heros-sous{margin:2px 0 0;font-size:13.5px;line-height:1.35}
+  .heros-sous .eco{color:var(--eco);font-weight:650}
+  .heros-sous .eco.nulle{color:var(--muted);font-weight:500}
+  .heros-rappel{margin:3px 0 0;font-size:12px;line-height:1.35;color:var(--muted)}
+  .heros-etat{margin:6px 0 8px;padding:10px 12px;border-radius:12px;border:1px solid var(--line)}
+  .heros-etat.ko{border-color:var(--rouge);background:color-mix(in srgb,var(--rouge) 8%,var(--card));}
+  .heros-etat.ok{border-color:var(--vert);background:color-mix(in srgb,var(--vert) 8%,var(--card));}
+  .heros-etat.ko b{color:var(--rouge)}
+  .heros-etat.ok b{color:var(--vert-2)}
+  .heros-etat .actions{margin-top:8px;gap:6px}
+  .heros-etat .btn{min-height:44px;font-size:13.5px}
+  /* Ligne de temps verticale : <ol>, reperes noirs (cercle plein = plein, numero = etape) */
+  .ligne-temps{list-style:none;margin:6px 0 0;padding:0;position:relative}
+  /* Reperes « noirs » du plan : encre du theme (clairs sur fond sombre, --repere). */
+  .ligne-temps::before{content:"";position:absolute;left:11px;top:12px;bottom:12px;width:2px;background:var(--repere);opacity:.35}
+  .ligne-temps li{position:relative;display:grid;grid-template-columns:24px 1fr auto;gap:0 8px;align-items:start;min-height:36px;padding:2px 0}
+  .lt-pt{width:24px;height:24px;border-radius:50%;background:var(--card);border:2.5px solid var(--repere);display:grid;place-items:center;
+         font-size:11.5px;font-weight:700;color:var(--repere);line-height:1;z-index:1;font-variant-numeric:tabular-nums}
+  .lt-pt.plein{background:var(--repere);color:var(--card)}
+  .lt-pt.pause{border-style:dashed;border-width:2px}
+  .lt-txt{min-width:0;padding-top:2px}
+  .lt-txt b{font-weight:650}
+  .lt-txt .lt-ligne{display:block;color:var(--muted);font-size:12px;line-height:1.3}
+  .lt-txt .prix{display:inline-block;padding:0 6px;line-height:1.3;border-radius:var(--r3);color:#fff;font-weight:700;font-size:12px;white-space:nowrap}
+  .lt-aller{align-self:center;min-width:44px;min-height:44px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r3);
+            background:var(--card);color:var(--bleu);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+  .lt-aller:hover{background:rgba(127,127,127,.12)}
+  /* Mini-barres : carburant du voyage selon le couloir */
+  .couloirs{margin:10px 0 0}
+  .couloirs-titre{font-size:12.5px;color:var(--muted);margin:0 0 2px}
+  .couloirs-barres{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+  .couloir-b{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;min-height:44px;padding:4px 2px 2px;
+             border:1px solid transparent;border-radius:10px;background:none;font:inherit;color:var(--ink);cursor:pointer;font-size:11.5px;
+             font-variant-numeric:tabular-nums}
+  .couloir-b:hover{background:rgba(127,127,127,.1)}
+  .couloir-b[aria-pressed="true"]{border-color:var(--ink);background:var(--bg)}
+  .couloir-b[aria-pressed="true"] .cb-val{font-weight:700}
+  .cb-barre{width:60%;max-width:34px;min-height:3px;border-radius:4px 4px 2px 2px;background:var(--bleu);opacity:.55}
+  .couloir-b[aria-pressed="true"] .cb-barre{opacity:1}
+  .cb-barre.ko{background:repeating-linear-gradient(135deg,var(--rouge) 0 3px,transparent 3px 6px);opacity:.7;height:12px !important}
+  .cb-val{white-space:nowrap}
+  .cb-km{color:var(--muted);white-space:nowrap}
+  .liste-min{margin:4px 0 0;padding-left:18px;font-size:13px}
+  .liste-min li{margin:2px 0}
   .inter{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer;min-height:44px}
   .inter.grande{display:flex;flex-wrap:wrap;margin:6px 0 12px;font-size:14.5px}
   .inter.grande small{flex:1 1 100%;color:var(--muted);font-size:12.5px;padding-left:48px}
@@ -228,6 +286,36 @@
   #posQ{min-height:40px;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r2);
         background:var(--card);color:var(--ink);font:inherit}
 
+  .msg{margin:6px 0 0;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .msg:empty{display:none}
+  .msg .btn{min-height:36px;padding:4px 10px}
+  .erreur{color:var(--rouge);font-size:13px;margin:6px 0 0}
+  .erreur:empty{display:none}
+  #vcat{max-width:170px}
+
+  /* ---------- Assistant vehicule (premier lancement) ---------- */
+  .assistant .modale-tete{gap:10px}
+  .as-compteur{margin-left:auto;font-size:12.5px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .as-types{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:4px 0}
+  .as-type{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:64px;padding:8px 4px;
+           border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);font:inherit;font-size:12.5px;cursor:pointer}
+  .as-type .ico{width:26px;height:26px;color:var(--bleu)}
+  .as-type[aria-pressed="true"]{border-color:var(--bleu);box-shadow:inset 0 0 0 1px var(--bleu);background:color-mix(in srgb,var(--bleu) 8%,var(--card))}
+  .as-cats{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0}
+  .as-cats:empty{display:none}
+  .as-cat{min-height:40px;padding:4px 12px;border:1px solid var(--line);border-radius:var(--r3);background:var(--card);color:var(--ink);font:inherit;font-size:13.5px;cursor:pointer}
+  .as-cat[aria-pressed="true"]{background:var(--bleu);border-color:var(--bleu);color:#fff}
+  .as-principal{display:block;font-weight:650;font-size:15px;margin-top:14px}
+  #asHybrideLbl{margin-top:6px}
+  .as-principal-ligne{margin-top:4px;align-items:center}
+  #asAutonomie{width:140px;font-size:22px;font-weight:600;min-height:48px;padding:6px 10px;border:2px solid var(--bleu);border-radius:var(--r2);
+               background:var(--card);color:var(--ink);font-variant-numeric:tabular-nums}
+  #asConso,#asCuve,#asReserve{width:80px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r2);background:var(--card);color:var(--ink);font:inherit;min-height:40px}
+  .as-conso-choix{align-items:center}
+  .as-pret{font-size:20px;font-weight:650;margin:4px 0 6px;display:flex;align-items:center;gap:8px}
+  .as-pret .ico{color:var(--vert);width:26px;height:26px}
+  #asResume li b{font-variant-numeric:tabular-nums}
+
   /* ---------- Feuilles modales : fiche station, garage, menus, aide ---------- */
   .voile{position:fixed;inset:0;background:var(--voile);z-index:40}
   .modale{position:fixed;left:0;right:0;bottom:0;z-index:50;max-height:calc(88dvh - var(--pad-haut));
@@ -293,7 +381,8 @@
 
   /* Cibles tactiles >= 44 px */
   @media (pointer:coarse){
-    .btn,.case,select,.champ input,#vnom,#conso,#cuve,#reserve,#autonomie,.tri button,.choix-item,#posQ{min-height:44px}
+    .btn,.case,select,.champ input,#vnom,#conso,#cuve,#reserve,#autonomie,.tri button,.choix-item,#posQ,
+    #asConso,#asCuve,#asReserve,#asPosQ,.as-cat,.msg .btn{min-height:44px}
     .rond.petit{width:44px;height:44px}
   }
   /* Mouvement reduit : aucune transition ; les animations de camera sont deja coupees en JS */
