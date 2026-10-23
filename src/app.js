@@ -12,6 +12,8 @@ const SP = [["e10","E10"],["sp95","SP95"],["sp98","SP98"]];
 const CASES = [["e85","E85"],["e10","E10"],["sp95","SP95"],["sp98","SP98"],
                ["spmin","SP le - cher"],["gazole","Gazole"],["gplc","GPLc"]];
 const DEFAUT = ["e85"];
+// Type de vehicule : ne sert qu'a l'icone du chip (l'assistant vehicule viendra plus tard).
+const TYPES = {voiture: 'Voiture', utilitaire: 'Utilitaire', moto: 'Moto', campingcar: 'Camping-car'};
 
 // Les reglages survivent au rechargement : sans cela, chaque F5 remettait les
 // cases par defaut et faisait perdre la selection en cours.
@@ -34,11 +36,14 @@ if(!Array.isArray(REGL.vehicules) || !REGL.vehicules.length){
 if(!(REGL.vehActif >= 0) || REGL.vehActif >= REGL.vehicules.length) REGL.vehActif = 0;
 
 // Ecriture directe, SANS fusion : reservee aux operations de structure du
-// garage (suppression, renommage) qui doivent s'imposer telles quelles.
+// garage (suppression, renommage) et aux reglages globaux (theme, fond, appli de
+// navigation) qui doivent s'imposer tels quels.
 function reglagesBruts(){
   try{ localStorage.setItem(CLE, JSON.stringify(REGL)); }
   catch(e){ /* stockage refuse : on continue sans memoire */ }
 }
+
+const $ = id => document.getElementById(id);
 
 function reglagesEcrits(){
   // ETAT LIVE AVANT D'ECRIRE : plusieurs onglets partagent ce stockage ; ecrire
@@ -55,132 +60,99 @@ function reglagesEcrits(){
   }
   const v = REGL.vehicules[REGL.vehActif];
   v.carbs = choix();
-  v.conso = document.getElementById('conso').value;
-  v.cuve  = document.getElementById('cuve').value;
-  v.autonomie = document.getElementById('autonomie').value;
-  v.reserve = document.getElementById('reserve').value;
-  REGL.sansCher = document.getElementById('sansCher').checked;
-  REGL.couloir  = document.getElementById('couloir').value;
-  REGL.queUtiles = document.getElementById('queUtiles').checked;
-  REGL.sansPeage = document.getElementById('sansPeage').checked;
+  v.type = $('vtype').value;
+  v.conso = $('conso').value;
+  v.cuve  = $('cuve').value;
+  v.autonomie = $('autonomie').value;
+  v.reserve = $('reserve').value;
+  REGL.sansCher = $('sansCher').checked;
+  REGL.couloir  = $('couloir').value;
+  REGL.queUtiles = $('queUtiles').checked;
+  REGL.sansPeage = $('sansPeage').checked;
   reglagesBruts();
   majSelectVeh();   // le garage a pu s'enrichir depuis un autre onglet
+  majChip();
 }
 function majSelectVeh(){
-  document.getElementById('veh').innerHTML = REGL.vehicules.map((v,i) =>
+  $('veh').innerHTML = REGL.vehicules.map((v,i) =>
     `<option value="${i}"${i === REGL.vehActif ? ' selected' : ''}>${esc(v.nom)}</option>`).join('');
 }
 function appliquerVeh(){
   const v = REGL.vehicules[REGL.vehActif];
   document.querySelectorAll('#carbs input').forEach(i => i.checked = v.carbs.includes(i.value));
-  document.getElementById('conso').value = v.conso || '';
-  document.getElementById('cuve').value  = v.cuve || '';
-  document.getElementById('autonomie').value = v.autonomie || '';
-  document.getElementById('reserve').value = v.reserve || '';
+  $('vtype').value = TYPES[v.type] ? v.type : 'voiture';
+  $('conso').value = v.conso || '';
+  $('cuve').value  = v.cuve || '';
+  $('autonomie').value = v.autonomie || '';
+  $('reserve').value = v.reserve || '';
+  $('vnom').value = v.nom;
   majEstimations();
+  majChip();
 }
 // Autonomie d'un plein et reservoir se deduisent l'un de l'autre par la conso : chaque
 // champ affiche en grise ce qu'il vaudrait d'apres l'autre, ce qui montre tout de suite
 // un ecart entre les deux saisies (l'autonomie prime dans le calcul, cf. autonomieUtile).
 function majEstimations(){
-  const conso = +document.getElementById('conso').value;
-  const cuve = +document.getElementById('cuve').value;
-  const auto = +document.getElementById('autonomie').value;
-  document.getElementById('autonomie').placeholder = conso > 0 && cuve > 0 ? `≈ ${Math.round(cuve / conso * 100)}` : '600';
-  document.getElementById('cuve').placeholder = conso > 0 && auto > 0 ? `≈ ${Math.round(auto * conso / 100)}` : '50';
+  const conso = +$('conso').value;
+  const cuve = +$('cuve').value;
+  const auto = +$('autonomie').value;
+  $('autonomie').placeholder = conso > 0 && cuve > 0 ? `≈ ${Math.round(cuve / conso * 100)}` : '600';
+  $('cuve').placeholder = conso > 0 && auto > 0 ? `≈ ${Math.round(auto * conso / 100)}` : '50';
+}
+// Chip vehicule (en haut a droite) : icone du type, nom, carburants coches.
+function majChip(){
+  const v = REGL.vehicules[REGL.vehActif];
+  $('chipIco').innerHTML = ico(TYPES[v.type] ? v.type : 'voiture');
+  $('chipNom').textContent = v.nom;
+  const c = (v.carbs || []).map(k => k === 'spmin' ? 'SP le - cher' : (COURT[k] || k));
+  $('chipCarb').textContent = c.length ? c.join(' + ') : 'aucun carburant';
+  $('chipVeh').setAttribute('aria-label', `Garage — ${v.nom}, ${c.join(' + ') || 'aucun carburant'}`);
 }
 const coches = REGL.vehicules[REGL.vehActif].carbs;
-document.getElementById('carbs').innerHTML = CASES.map(([k,l]) =>
+$('carbs').innerHTML = CASES.map(([k,l]) =>
   `<label class="case"><input type="checkbox" value="${k}"`+
   `${coches.includes(k)?' checked':''}> ${l}</label>`).join('');
 
+// ---------- Theme : automatique, ou choix memorise ----------
+const SCHEMA_SOMBRE = matchMedia('(prefers-color-scheme: dark)');
+const sombreEffectif = () => REGL.theme === 'sombre' || (REGL.theme !== 'clair' && SCHEMA_SOMBRE.matches);
+function appliquerTheme(){
+  document.documentElement.dataset.theme = REGL.theme || 'auto';
+  document.querySelectorAll('[data-theme]').forEach(b => {
+    if(b.tagName === 'BUTTON') b.setAttribute('aria-pressed', String((REGL.theme || 'auto') === b.dataset.theme));
+  });
+  if(CARTE) CARTE.sombre(sombreEffectif());
+}
+document.documentElement.dataset.theme = REGL.theme || 'auto';
+SCHEMA_SOMBRE.addEventListener('change', () => appliquerTheme());
+
 // Regle de conception : AUCUNE coordonnee personnelle en dur. Le centre vient de
 // la geolocalisation de l'appareil ; a defaut du dernier repere memorise sur CE
-// navigateur ; a defaut d'une vue France entiere (clic droit pour poser le repere).
+// navigateur ; a defaut d'une vue France entiere (appui long / clic droit pour poser le repere).
 if(Array.isArray(REGL.centre)) CENTRE = REGL.centre.slice();
-const ZOOM0 = CENTRE ? 13 : 6;
+const ZOOM0 = CENTRE ? 13 : 5.5;
 if(!CENTRE) CENTRE = [46.603, 2.334];
-// Mouvement reduit demande par l'appareil : on coupe les animations de la
-// carte (zoom, fondu, deplacement), sans rien changer au fonctionnement.
-const CALME = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const map = L.map('map',{scrollWheelZoom:true, zoomAnimation:!CALME,
-  fadeAnimation:!CALME, markerZoomAnimation:!CALME}).setView(CENTRE, ZOOM0, {animate:!CALME});
 
-// Fond de carte : IGN Geoplateforme. OSM sert une tuile « Access blocked » quand
-// la page vient d'un file:// (pas de Referer, exige par sa politique d'usage) —
-// constate le 09/08/2026 dans Firefox. L'IGN n'a pas cette contrainte.
-const FONDS = {
-  "Plan IGN": L.tileLayer(
-    'https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile'+
-    '&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&TILEMATRIXSET=PM'+
-    '&FORMAT=image/png&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
-    {maxZoom:19, attribution:'Plan IGN © IGN — Géoplateforme'}),
-  "Vue aérienne": L.tileLayer(
-    'https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile'+
-    '&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM'+
-    '&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
-    {maxZoom:19, attribution:'Orthophotos © IGN — Géoplateforme'}),
-};
-FONDS["Plan IGN"].addTo(map);
-L.control.layers(FONDS, null, {position:'topright'}).addTo(map);
+// ---------- Carte (MapLibre GL, fond IGN) ----------
+// Sans WebGL : message sur fond neutre, le reste (liste, garage, plan) fonctionne.
+const CARTE = creerCarte({centre: CENTRE, zoom: ZOOM0, sombre: sombreEffectif(), fond: REGL.fond});
+const map = CARTE ? CARTE.map : null;
+if(!CARTE){
+  $('map').hidden = true;
+  $('sansWebgl').hidden = false;
+}
+// Repere (pastille bleue) : les distances partent d'ici.
+const elRepere = document.createElement('div');
+elRepere.className = 'repere';
+elRepere.title = 'Point de repère — les distances partent d\'ici';
+const repere = CARTE ? CARTE.marqueur(CENTRE[0], CENTRE[1], elRepere) : null;
+// Trace du trajet (couche GeoJSON, remise apres chaque changement de style).
+const TRACE_VIDE = {type: 'FeatureCollection', features: []};
+if(CARTE) CARTE.couche('fh-trace', {type: 'geojson', data: TRACE_VIDE},
+  {type: 'line', layout: {'line-cap': 'round', 'line-join': 'round'},
+   paint: {'line-color': '#1d4ed8', 'line-width': 5, 'line-opacity': 0.45}});
 
-// Icones inline (style Lucide, monochrome, stroke currentColor) : aucun
-// fichier externe, aucune police d'icones, rien qui depende du reseau.
-const ICO = {
-  pompe: '<svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" '+
-         'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+
-         '<line x1="3" y1="22" x2="15" y2="22"/><line x1="4" y1="9" x2="14" y2="9"/>'+
-         '<path d="M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18"/>'+
-         '<path d="M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 4 0V9.83a2 2 0 0 0-.59-1.42L18 5"/></svg>',
-  viseur: '<svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" '+
-          'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+
-          '<line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/>'+
-          '<line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/>'+
-          '<circle cx="12" cy="12" r="7"/></svg>',
-  alerte: '<svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" '+
-          'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+
-          '<path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>'+
-          '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
-};
-
-// Bouton "viseur" directement sur la carte : arriver d'un geste sur sa position.
-const CtrlLoc = L.Control.extend({
-  options: {position: 'topleft'},
-  onAdd(){
-    const d = L.DomUtil.create('div', 'leaflet-bar');
-    const a = L.DomUtil.create('a', '', d);
-    a.href = '#'; a.title = 'Ma position'; a.setAttribute('aria-label', 'Ma position');
-    a.innerHTML = ICO.viseur;
-    a.style.cssText = 'display:flex;align-items:center;justify-content:center';
-    L.DomEvent.on(a, 'click', e => { L.DomEvent.stop(e); localiser(false); });
-    return d;
-  }
-});
-map.addControl(new CtrlLoc());
-
-// Repli automatique si l'IGN est vraiment indisponible. Avant le 17/09/2026, UNE tuile
-// en erreur (reseau mobile, zoom rapide) basculait definitivement sur CARTO, qui exige
-// desormais une cle : « API KEY REQUIRED » en travers de toute la carte. Desormais :
-// bascule seulement apres 6 erreurs sans aucune tuile IGN chargee, vers OpenStreetMap
-// (sans cle), et seulement en http(s) — en file://, OSM sert « Access blocked ».
-// OSM reste hors du selecteur : sa politique d'usage exclut un usage courant par une appli.
-const OSM = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-  {maxZoom:19, attribution:'© les contributeurs OpenStreetMap'});
-let secours = false, erreursIGN = 0, tuilesIGN = 0;
-FONDS["Plan IGN"].on('tileload', () => { tuilesIGN++; });
-FONDS["Plan IGN"].on('tileerror', () => {
-  erreursIGN++;
-  if(secours || tuilesIGN > 0 || erreursIGN < 6 || !/^https?:$/.test(location.protocol)) return;
-  secours = true;
-  map.removeLayer(FONDS["Plan IGN"]);
-  OSM.addTo(map);
-});
-const repere = L.circleMarker(CENTRE,{radius:6,color:'#1d4ed8',weight:2,
-  fillColor:'#3b82f6',fillOpacity:.9}).addTo(map)
-  .bindTooltip('Point de repère — les distances partent d\'ici (clic droit sur la carte pour le déplacer)');
-
-let layer = L.layerGroup().addTo(map);
-let etapeLayer = L.layerGroup().addTo(map);
+let MARQUEURS = [];   // marqueurs HTML des stations et reperes du plan, refaits a chaque rendu
 let DATA = [], sortKey = 'prix', sortAsc = true;
 
 const dist = (la,lo) => {
@@ -211,13 +183,6 @@ function couleur(p, b, mini){
 // stations cheres s'afficherait en vert — « la moins chere ici » n'est pas
 // « une bonne affaire ». Rouge plein = au-dessus du 9e decile.
 let REF_ROWS = [];
-function bornes(vue){
-  const px = REF_ROWS.map(s => pick(s, vue)).filter(Boolean)
-                     .map(v => v.p).sort((a,b) => a-b);
-  if(px.length < 8) return null;
-  const Q = f => px[Math.round(f*(px.length-1))];
-  return {med: Q(0.50), p90: Q(0.90)};
-}
 const jour = s => s ? s.slice(8,10)+'/'+s.slice(5,7) : '—';
 function quand(s){
   if(!s) return {txt:'date inconnue', vieux:true};
@@ -231,15 +196,19 @@ function quand(s){
 
 // Echappement HTML de toute chaine venue de l'exterieur (flux des stations,
 // nom de vehicule importe par l'URL) : fait UNE fois a l'ingestion, tout ce qui
-// est rendu ensuite (tableau, bulles, liste des vehicules) est sain.
+// est rendu ensuite (liste, fiches, garage) est sain.
 const esc = x => String(x).replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// Retour au texte brut pour ce qui ne passe pas par innerHTML (presse-papiers, aria-label).
+const brut = x => String(x).replace(/&(amp|lt|gt|quot|#39);/g, m =>
+  ({'&amp;':'&','&lt;':'<','&gt;':'>','&quot;':'"','&#39;':"'"}[m]));
 
 function normalise(rows){
   return rows.map(r => {
     const la=parseFloat(r.latitude)/100000, lo=parseFloat(r.longitude)/100000;
     if(!isFinite(la)||!isFinite(lo)) return null;
-    return {la, lo, ville:esc(r.ville||''), cp:esc(r.cp||''), adresse:esc(r.adresse||''),
+    return {id: esc(r.id != null ? r.id : `${la},${lo}`), la, lo,
+            ville:esc(r.ville||''), cp:esc(r.cp||''), adresse:esc(r.adresse||''),
             auto:r.horaires_automate_24_24==='Oui',
             rupture:esc([r.carburants_rupture_temporaire, r.carburants_rupture_definitive]
                       .filter(Boolean).join(';')),
@@ -290,20 +259,30 @@ function bornes(sel){
   return {med: Q(0.50), p90: Q(0.90)};
 }
 
-const gmaps = s => 'https://www.google.com/maps/dir/?api=1&destination='+s.la+','+s.lo;
+const sansCherLbl = () => $('sansCher').checked
+  ? 'les 10 % les plus chères du secteur sont masquées'
+  : 'rouge = les 10 % les plus chères du secteur';
 
-const sansCherLbl = () => document.getElementById('sansCher').checked
-  ? 'les 10 % les plus chers du secteur sont masqués'
-  : 'rouge = les 10 % les plus chers du secteur';
+// Emprise interrogee : les bornes de la carte (ou, sans carte, la France entiere).
+function emprise(){
+  if(!map) return {s: 41.2, n: 51.3, w: -5.5, e: 9.8};
+  const b = map.getBounds();
+  return {s: b.getSouth(), n: b.getNorth(), w: b.getWest(), e: b.getEast()};
+}
+const dansEmprise = (b, la, lo) => la >= b.s && la <= b.n && lo >= b.w && lo <= b.e;
 
+// ---------- Rendu : marqueurs, liste en cartes, bloc plan ----------
 function rendu(){
   const sel = choix();
-  const tb = document.getElementById('tb');
-  layer.clearLayers(); etapeLayer.clearLayers(); tb.innerHTML = '';
-  document.getElementById('plan').style.display = 'none';
+  const liste = $('liste');
+  MARQUEURS.forEach(m => m.remove()); MARQUEURS = [];
+  liste.innerHTML = '';
+  $('blocPlan').hidden = true;
+  $('titreListe').firstChild.textContent = ROUTE ? 'Sur le trajet' : 'Autour de vous';
+  $('secStations').querySelector('.stations-tete').hidden = !ROUTE;
   if(!sel.length){
-    document.getElementById('compte').textContent = 'aucun carburant coché';
-    tb.innerHTML = '<tr><td colspan="5">Coche au moins un carburant.</td></tr>';
+    majEtat('aucun carburant coché');
+    liste.innerHTML = '<li class="vide">Cochez au moins un carburant dans le garage.</li>';
     return;
   }
 
@@ -311,22 +290,26 @@ function rendu(){
   // filtrer l'affichage, ce qui est instantane et ne perd aucune station.
   let source = DATA;
   if(ROUTE){
-    const large = +document.getElementById('couloir').value;
-    const vue = map.getBounds();
+    const large = +$('couloir').value;
+    const vue = emprise();
     DATA.forEach(s => { if(s.ecart == null){
       const r = distTrace(s.la, s.lo); s.ecart = r.d; s.kmr = r.km; } });
-    source = DATA.filter(s => s.ecart <= large && vue.contains([s.la, s.lo]));
+    source = DATA.filter(s => s.ecart <= large && dansEmprise(vue, s.la, s.lo));
   }
   const list = source.map(s => ({s, v: pick(s, sel)})).filter(o => o.v);
   const n = list.length;
-  majCompte = t => document.getElementById('compte').textContent =
-    `${n} station${n>1?'s':''} ${ROUTE ? 'sur le trajet, dans la zone affichée' : 'dans la zone affichée'}` + t +
-    (tronque ? ` · ${tronque} de plus non chargée${tronque>1?'s':''} (plafond ${PLAFOND})` : '');
+  majCompte = t => {
+    $('compte').textContent =
+      `${n} station${n>1?'s':''} ${ROUTE ? 'sur le trajet, dans la zone affichée' : 'dans la zone affichée'}` + t +
+      (tronque ? ` · ${tronque} de plus non chargée${tronque>1?'s':''} (plafond ${PLAFOND})` : '');
+    $('titreStations').textContent = `Stations du couloir (${n})`;
+    majEtat();
+  };
   majCompte('');
   if(!n){
-    tb.innerHTML = ROUTE
-      ? '<tr><td colspan="5">Aucune station du couloir ne sert cette combinaison dans la zone affichée — dézoome, élargis le couloir, ou décoche un carburant.</td></tr>'
-      : '<tr><td colspan="5">Aucune station ne sert cette combinaison dans la zone affichée — dézoome, déplace la carte, ou décoche un carburant.</td></tr>';
+    liste.innerHTML = ROUTE
+      ? '<li class="vide">Aucune station du couloir ne sert cette combinaison dans la zone affichée — dézoomez, élargissez le couloir, ou décochez un carburant.</li>'
+      : '<li class="vide">Aucune station ne sert cette combinaison dans la zone affichée — dézoomez, déplacez la carte, ou décochez un carburant.</li>';
     return;
   }
 
@@ -336,12 +319,7 @@ function rendu(){
   const minis = sel.map((k,i) => Math.min(...list.map(o => o.v.lignes[i].prix)));
   const multi = sel.length > 1;
 
-  document.getElementById('echelle').textContent =
-    `— vert = le moins cher affiché, ex æquo compris ; ${sansCherLbl()} · ` +
-    sel.map((k,i) => `${k==='spmin'?'SP':COURT[k]} ${minis[i].toFixed(3)}` +
-                     (refs[i] ? ` / ${refs[i].p90.toFixed(3)}` : '')).join(' · ') + ' €';
-
-  const sansCher = document.getElementById('sansCher').checked;
+  const sansCher = $('sansCher').checked;
   // Une station est « trop chere » des qu'UN des carburants demandes est dans le
   // 9e decile de son propre secteur — pas seulement quand la somme l'est. Sinon
   // le masque laissait passer des pastilles rouges, ce qui se voyait et se lisait mal.
@@ -350,46 +328,31 @@ function rendu(){
   const retenues = sansCher ? list.filter(o => !chere(o)) : list;
   const ecartees = list.length - retenues.length;
 
-  // Dessin des pastilles, appele une fois connue la liste REELLEMENT affichee (voir
-  // plus bas) : mn = prix minimum par carburant parmi ces seules stations.
+  // Dessin des etiquettes de prix, appele une fois connue la liste REELLEMENT affichee
+  // (voir plus bas) : mn = prix minimum par carburant parmi ces seules stations.
   // Les plus cheres dessinees en premier : les etiquettes utiles restent dessus.
-  const dessinerMarqueurs = (liste, mn) => [...liste].sort((a,b) => b.v.p - a.v.p).forEach((o,i) => {
-    const {s,v} = o;
-    const chips = v.lignes.map((l,j) =>
-      `<span style="background:${couleur(l.prix, refs[j], mn[j])}">${l.tag} ${l.prix.toFixed(3)}</span>`).join('');
-    const html = multi
-      ? `<div class="lbl lbl2">${chips}</div>`
-      : `<div class="lbl" style="background:${couleur(v.lignes[0].prix, refs[0], mn[0])};`+
-        `border-color:#555;color:#fff">${v.lignes[0].prix.toFixed(3)}`+
-        (sel[0]==='spmin' ? ` <span style="font-size:10px;opacity:.85">${v.lignes[0].tag}</span>` : '')+
-        `</div>`;
-    const h = multi ? 8 + 16*v.lignes.length : 20;
-    const ic = L.divIcon({className:'', iconSize:[multi?80:62, h],
-                          iconAnchor:[multi?40:31, h/2], html});
-    const utilises = v.lignes.map(l => l.ref);
-    L.marker([s.la,s.lo],{icon:ic, zIndexOffset:i*10, riseOnHover:true, stationRef:s})
-      .addTo(layer).bindPopup(
-        `<b>${s.ville} (${s.cp})</b><br>${s.adresse}` +
-        (s.auto?'<br><i>automate 24 h/24</i>':'') +
-        (s.rupture?`<br><span style="color:#c02626">rupture : ${s.rupture}</span>`:'') +
-        '<ul class="fuels">' + FUELS.filter(([k]) => s.prix[k]!=null).map(([k,l])=>{
-          const q = quand(s.maj[k]);
-          const ko = s.hs.has(RUPT[k]);
-          return `<li class="${utilises.includes(k)?'hi':''}"><span>${l}`+
-                 `${ko?' <span style="color:#c02626">(en rupture)</span>':''}</span>`+
-                 `<span class="dt${q.vieux?' vieux':''}">${q.txt}</span>`+
-                 `<b style="${ko?'text-decoration:line-through;opacity:.55':''}">`+
-                 `${s.prix[k].toFixed(3)} €</b></li>`;
-        }).join('') + '</ul>' +
-        '<div style="font-size:11.5px;color:#6b7280;margin-top:6px">'+
-        'Dates = dernier relevé déclaré par la station.</div>' +
-        `<div style="margin-top:8px"><a href="${gmaps(s)}" target="_blank" rel="noopener">Itinéraire ▸</a></div>`);
-  });
+  const dessinerMarqueurs = (liste, mn) => { if(!CARTE) return;
+    [...liste].sort((a,b) => b.v.p - a.v.p).forEach(o => {
+      const {s,v} = o;
+      const chips = v.lignes.map((l,j) =>
+        `<span style="background:${couleur(l.prix, refs[j], mn[j])}">${l.tag} ${l.prix.toFixed(3)}</span>`).join('');
+      const html = multi
+        ? `<div class="lbl lbl2">${chips}</div>`
+        : `<div class="lbl" style="background:${couleur(v.lignes[0].prix, refs[0], mn[0])};`+
+          `border-color:#555;color:#fff">${v.lignes[0].prix.toFixed(3)}`+
+          (sel[0]==='spmin' ? ` <span style="font-size:10px;opacity:.85">${v.lignes[0].tag}</span>` : '')+
+          `</div>`;
+      const el = document.createElement('button');
+      el.type = 'button'; el.className = 'marqueur'; el.tabIndex = -1;
+      el.setAttribute('aria-label', `${brut(s.ville)} — ${v.lignes.map(l => `${l.tag} ${l.prix.toFixed(3)} €`).join(', ')}`);
+      el.innerHTML = html; el.dataset.id = s.id;
+      el.addEventListener('click', e => { e.stopPropagation(); ouvrirStation(o, el); });
+      MARQUEURS.push(CARTE.marqueur(s.la, s.lo, el));
+    });
+  };
 
   const gardees = retenues;
-  const th = document.getElementById('thDist');
-  const fleche = (th.textContent.match(/ [▲▼]$/) || [''])[0];   // ne pas manger le tri
-  th.textContent = (ROUTE ? 'Écart au trajet' : 'Distance') + fleche;
+  $('thDist').textContent = ROUTE ? 'Écart au trajet' : 'Distance';
 
   const ordre = (a,b)=>{
     let x,y;
@@ -403,10 +366,6 @@ function rendu(){
   majCompte(ecartees ? ` · ${ecartees} trop chère${ecartees>1?'s':''} masquée${ecartees>1?'s':''}` : '');
 
   // ---- Plan de pleins : plein au depart, arrets choisis au moins cher ----
-  // Autonomie utile = reservoir / conso x 100, moins 10 % de reserve. A chaque
-  // etape : parmi les stations atteignables du couloir (masque ignore : mieux
-  // vaut une station chere qu'une panne seche), la moins chere ; a prix egal,
-  // la plus lointaine. Glouton simple, suffisant a cette echelle.
   const etapeNum = new Map();
   // Plein au depart / a l'arrivee : station -> libelle. Toujours visibles, meme avec
   // le filtre « arrets du plan » (demande Eric, 17/09/2026 : Orleans > Montpellier,
@@ -415,21 +374,21 @@ function rendu(){
   // Trajet sans arret necessaire : stations gardees a la place du plan (voir plus bas).
   const moinsCheres = new Set();
   let utilesPlan = null, horsPlan = 0;
-  const elPlan = document.getElementById('plan');
+  const elPlan = $('plan');
   if(ROUTE && KMS){
-    const conso = +document.getElementById('conso').value;
-    const cuve  = +document.getElementById('cuve').value;
-    const autonomie = +document.getElementById('autonomie').value;
+    const conso = +$('conso').value;
+    const cuve  = +$('cuve').value;
+    const autonomie = +$('autonomie').value;
     // Reserve en KM (choix d'ergonomie) : plus parlant qu'un pourcentage.
-    const resv = Math.max(0, +document.getElementById('reserve').value || 30);
+    const resv = Math.max(0, +$('reserve').value || 30);
     const au = autonomieUtile(conso, cuve, autonomie, resv);
-    elPlan.style.display = 'block';
+    $('blocPlan').hidden = false;
     if(!(conso > 0) || !au){
-      elPlan.innerHTML = '<span style="color:var(--muted)">Renseigne la conso et l\'autonomie d\'un plein (ou le réservoir) dans la fiche du véhicule pour savoir où faire le plein.</span>';
+      elPlan.innerHTML = '<span style="color:var(--muted)">Renseignez la conso et l\'autonomie d\'un plein (ou le réservoir) dans le garage pour savoir où faire le plein.</span>';
     }else{
       const A = au.A;
       const total = KMS[KMS.length - 1];
-      const larg = +document.getElementById('couloir').value;
+      const larg = +$('couloir').value;
       const lkm = conso / 100;
       const carbPlan = sel[0];               // le plan se calcule sur le 1er carburant coche
       const candTous = DATA.filter(x => x.kmr != null)
@@ -479,34 +438,34 @@ function rendu(){
       // TOUTES celles au prix le plus bas, ex aequo compris, donc toutes en vert,
       // completees jusqu'a trois stations, departagees par le detour. Constate le
       // 17/09/2026 : Montpellier > Aniane, 35 km, 10 stations dans le couloir, carte et
-      // tableau vides.
+      // liste vides.
       if(plan && !plan.length && list.length){
         const parPrix = [...list].sort((a,b) => a.v.p - b.v.p || a.s.ecart - b.s.ecart);
         const pMin = parPrix[0].v.p;
         parPrix.forEach((o,i) => { if(o.v.p <= pMin + 1e-9 || i < 3) moinsCheres.add(o.s); });
       }
-      (plan || []).forEach((e,i) => {
-        L.circleMarker([e.s.la, e.s.lo], {radius: 17, color: '#111827', weight: 3,
-          fill: false, dashArray: '5 5'}).addTo(etapeLayer)
-          .bindTooltip(`Étape ${i+1} — km ${Math.round(e.km)}`);
-      });
-      // Depart et arrivee : cercle noir plein (etapes : pointille) — le noir = le plan.
+      // Reperes du plan sur la carte : cercle noir pointille = etape, plein = depart/arrivee.
+      const rond = (s, titre, plein) => { if(!CARTE) return;
+        const el = document.createElement('div');
+        el.className = 'etape-rond' + (plein ? ' plein' : ''); el.title = titre;
+        MARQUEURS.push(CARTE.marqueur(s.la, s.lo, el));
+      };
+      (plan || []).forEach((e,i) => rond(e.s, `Étape ${i+1} — km ${Math.round(e.km)}`, false));
       [[depart, 'Plein au départ'], [arrivee, 'Plein à l\'arrivée']].forEach(([o, t]) => {
-        if(o) L.circleMarker([o.s.la, o.s.lo], {radius: 17, color: '#111827', weight: 3, fill: false})
-               .addTo(etapeLayer).bindTooltip(`${t} — km ${Math.round(o.km)}`);
+        if(o) rond(o.s, `${t} — km ${Math.round(o.km)}`, true);
       });
       const nomStation = o => `<b>${o.s.ville}</b> ${o.v.lignes.map(l => `${l.tag} ${l.prix.toFixed(3)}`).join(' + ')} €`+
                               ` (km ${Math.round(o.km)}, détour ${(2*o.e).toFixed(1)} km)`;
-      const ligneDepart = `<span class="badge">${ICO.pompe} Départ</span> Plein au départ : ` +
+      const ligneDepart = `<span class="badge">${ico('pompe')} Départ</span> Plein au départ : ` +
         (depart ? nomStation(depart) : 'aucune station à moins de 15 km du départ dans ce couloir');
-      const ligneArrivee = `<span class="badge">${ICO.pompe} Arrivée</span> Plein à l'arrivée : ` +
+      const ligneArrivee = `<span class="badge">${ico('pompe')} Arrivée</span> Plein à l'arrivée : ` +
         (arrivee ? nomStation(arrivee) : 'aucune station à moins de 15 km de l\'arrivée dans ce couloir');
       const origine = au.source === 'autonomie' ? `plein ≈ ${Math.round(au.plein)} km`
                     : `${cuve} L × ${String(conso).replace('.', ',')} L/100`;
       const tete = `${ligneDepart} · autonomie utile ~${Math.round(A)} km (${origine}, réserve ${resv} km)`;
       if(plan === null){
-        elPlan.innerHTML = `${tete} · <b style="color:#c02626">${ICO.alerte} trajet infaisable avec cette`+
-          ` autonomie dans ce couloir</b> — élargis le couloir, réduis la réserve ou vérifie conso et réservoir`;
+        elPlan.innerHTML = `${tete} · <b style="color:var(--rouge)">${ico('alerte')} trajet infaisable avec cette`+
+          ` autonomie dans ce couloir</b> — élargissez le couloir, réduisez la réserve ou vérifiez conso et réservoir`;
       }else if(!plan.length){
         const lst = [...list].filter(o => moinsCheres.has(o.s))
                              .sort((a,b) => a.v.p - b.v.p || a.s.ecart - b.s.ecart);
@@ -523,7 +482,7 @@ function rendu(){
           ` · temps d'arrêts ≈ <b>${Math.round(tempsTotal)} min</b>` +
           `<br>` +
           plan.map((e,i) =>
-            `<span class="badge">${ICO.pompe} ${i+1}</span> ${e.s.ville} km ${Math.round(e.km)}`+
+            `<span class="badge">${ico('pompe')} ${i+1}</span> ${e.s.ville} km ${Math.round(e.km)}`+
             ` (détour ${(2*e.e).toFixed(1)} km ≈ ${(2*e.e*lkm*e.p).toFixed(2)} €, ~${Math.round(minutes(e))} min)`+
             ` — ${e.v.lignes.map(l => `${l.tag} ${l.prix.toFixed(3)}`).join(' + ')} €`).join(' · ') +
           `<br>${ligneArrivee}` +
@@ -532,11 +491,11 @@ function rendu(){
     }
     // Une station du plan (etape, depart, arrivee) reste visible meme « trop chere » :
     // le plan y passe. La masquer faisait croire a un plan vide (constate le 17/09/2026 :
-    // Le Caylar, etape 1 d'Orleans > Montpellier, absente du tableau et de la carte).
+    // Le Caylar, etape 1 d'Orleans > Montpellier, absente de la liste et de la carte).
     const dansTri = new Set(tri.map(o => o.s));
     const reprises = list.filter(o => (etapeNum.has(o.s) || extremites.has(o.s)) && !dansTri.has(o.s));
     if(reprises.length){ tri.push(...reprises); tri.sort(ordre); }
-    if(utilesPlan && document.getElementById('queUtiles').checked){
+    if(utilesPlan && $('queUtiles').checked){
       const avant = tri.length;
       tri = tri.filter(({s}) => etapeNum.has(s) || moinsCheres.has(s) || extremites.has(s));
       const off = avant - tri.length;
@@ -546,94 +505,189 @@ function rendu(){
   }
   if(!tri.length){
     // Deux causes possibles, deux messages : le filtre du plan, ou le masque des cheres.
-    tb.innerHTML = horsPlan
-      ? '<tr><td colspan="5">Aucune station du plan dans la zone affichée — dézoome, ou décoche « Ne garder que les arrêts du plan » pour voir tout le couloir.</td></tr>'
-      : '<tr><td colspan="5">Toutes les stations de la zone sont dans les 10 % les plus chères du secteur — décoche « Masquer les trop chères » pour les voir.</td></tr>';
+    liste.innerHTML = horsPlan
+      ? '<li class="vide">Aucune station du plan dans la zone affichée — dézoomez, ou désactivez « Seulement les arrêts du plan » pour voir tout le couloir.</li>'
+      : '<li class="vide">Toutes les stations de la zone sont dans les 10 % les plus chères du secteur — désactivez « Masquer les trop chères » (options) pour les voir.</li>';
     return;
   }
   // Couleurs calculees sur les stations REELLEMENT affichees, comme le dit la legende
-  // (« le moins cher affiché ») : avec le filtre « arrets du plan », une etape seule
+  // (« la moins chere affichee ») : avec le filtre « arrets du plan », une etape seule
   // restait « dans la norme » parce que des stations masquees etaient moins cheres ;
   // ex aequo compris, toutes les moins cheres affichees sont vertes (17/09/2026).
   const minisAff = sel.map((k,i) => Math.min(...tri.map(o => o.v.lignes[i].prix)));
   const miniTotAff = Math.min(...tri.map(o => o.v.p));
-  document.getElementById('echelle').textContent =
-    `— vert = le moins cher affiché, ex æquo compris ; ${sansCherLbl()} · ` +
+  $('echelle').textContent =
+    `— vert = la moins chère affichée, ex æquo compris ; ${sansCherLbl()} · ` +
     sel.map((k,i) => `${k==='spmin'?'SP':COURT[k]} ${minisAff[i].toFixed(3)}` +
                      (refs[i] ? ` / ${refs[i].p90.toFixed(3)}` : '')).join(' · ') + ' €';
   dessinerMarqueurs(tri, minisAff);
-  tri.forEach(({s,v})=>{
+  tri.forEach((o, i) => {
+    const {s, v} = o;
     const chips = v.lignes.map((l,j) =>
-      `<span class="pill" style="background:${couleur(l.prix, refs[j], minisAff[j])}">${l.tag} ${l.prix.toFixed(3)}</span>`).join(' ');
-    const prix = multi
-      ? `<span class="pill" style="background:${couleur(v.p, refTotal, miniTotAff)}">${v.p.toFixed(3)} €</span>`+
-        `<div style="margin-top:4px;display:flex;gap:5px;flex-wrap:wrap">${chips}</div>`
-      : chips;
+      `<span class="pill" style="background:${couleur(l.prix, refs[j], minisAff[j])}">${l.tag} ${l.prix.toFixed(3)}</span>`).join('');
+    const prix = (multi
+      ? `<span class="pill" style="background:${couleur(v.p, refTotal, miniTotAff)}">${v.p.toFixed(3)} €</span>` : '') + chips;
     const et = etapeNum.get(s), mc = moinsCheres.has(s), ex = extremites.get(s);
-    const tr=document.createElement('tr');
-    if(et || mc || ex) tr.className = 'etape';
-    tr.innerHTML = `<td>${prix}</td>`+
-      `<td>${(ROUTE ? s.ecart : s.d).toFixed(1)} km`+
-      (ROUTE && s.kmr != null ? `<br><span style="color:var(--muted);font-size:12px">km ${Math.round(s.kmr)}</span>` : '')+`</td>`+
-      `<td>${ex ? `<span class="badge">${ICO.pompe} ${ex}</span><br>` : ''}`+
-      `${et ? `<span class="badge">${ICO.pompe} Étape ${et}</span><br>` : mc ? `<span class="badge badge-min">Moins chère</span><br>` : ''}${s.ville}<br><span style="color:var(--muted);font-size:12.5px">${s.cp}</span></td>`+
-      `<td>${s.adresse}${s.auto?' <span style="color:var(--muted)">· 24/24</span>':''}</td>`+
-      `<td>${jour(v.maj)}</td>`;
-    tr.onclick = ()=>{ map.setView([s.la,s.lo],15,{animate:!CALME}); window.open(gmaps(s),'_blank','noopener'); };
-    tb.appendChild(tr);
+    const badges = (ex ? `<span class="badge">${ico('pompe')} ${ex}</span> ` : '') +
+      (et ? `<span class="badge">${ico('pompe')} Étape ${et}</span> ` : mc ? `<span class="badge badge-min">Moins chère</span> ` : '');
+    const li = document.createElement('li');
+    li.innerHTML = `<button type="button" class="carte${et || mc || ex ? ' etape' : ''}" aria-haspopup="dialog">`+
+      `<span class="ville">${badges}${s.ville} <span class="cp">${s.cp}</span></span>`+
+      `<span class="prix">${prix}</span>`+
+      `<span class="adr">${s.adresse}${s.auto ? ' · 24/24' : ''}</span>`+
+      `<span class="meta"><span>${(ROUTE ? s.ecart : s.d).toFixed(1)} km${ROUTE ? ' du trajet' : ''}</span>`+
+      (ROUTE && s.kmr != null ? `<span>km ${Math.round(s.kmr)}</span>` : '')+
+      `<span>relevé ${jour(v.maj)}</span></span></button>`;
+    const b = li.firstChild;
+    b.dataset.i = i; b.dataset.id = s.id;
+    b.addEventListener('click', () => {
+      // Geste explicite : la carte peut se recadrer (sans animation si mouvement reduit).
+      // Sur mobile, la feuille couvre le bas : la station est centree dans la partie visible.
+      if(CARTE) CARTE.aller([s.la, s.lo], Math.max(map.getZoom(), 14), true,
+                            MOBILE.matches ? [0, -Math.round(panneau.offsetHeight / 2)] : [0, 0]);
+      ouvrirStation(o, b);
+    });
+    liste.appendChild(li);
   });
+  LISTE_COURANTE = tri;
 }
+let LISTE_COURANTE = [];
 
-window.addEventListener('resize', () => map.invalidateSize(false));
-if('scrollRestoration' in history) history.scrollRestoration = 'manual';
-
-document.querySelectorAll('th[data-k]').forEach(th=>{
-  th.onclick = ()=>{
-    const k=th.dataset.k;
-    sortAsc = (k===sortKey) ? !sortAsc : true; sortKey=k;
-    document.querySelectorAll('th[data-k]').forEach(o=>
-      o.textContent=o.textContent.replace(/ [▲▼]$/,''));
-    th.textContent += sortAsc?' ▲':' ▼';
+// Navigation clavier dans la liste : fleches haut/bas entre les cartes.
+$('liste').addEventListener('keydown', e => {
+  if(e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const cartes = [...$('liste').querySelectorAll('.carte')];
+  const i = cartes.indexOf(document.activeElement);
+  if(i < 0) return;
+  const j = e.key === 'ArrowDown' ? Math.min(cartes.length - 1, i + 1) : Math.max(0, i - 1);
+  cartes[j].focus(); e.preventDefault();
+});
+document.querySelectorAll('.tri button[data-k]').forEach(b => {
+  b.onclick = () => {
+    const k = b.dataset.k;
+    sortAsc = (k === sortKey) ? !sortAsc : true; sortKey = k;
+    document.querySelectorAll('.tri button[data-k]').forEach(o => {
+      o.setAttribute('aria-pressed', String(o === b));
+      o.querySelector('svg')?.remove();
+    });
+    b.insertAdjacentHTML('beforeend', ' ' + ico(sortAsc ? 'haut' : 'bas'));
     rendu();
   };
 });
-document.getElementById('carbs').onchange = () => { reglagesEcrits(); charger(); };
-majSelectVeh();
-document.getElementById('veh').onchange = e => {
-  REGL.vehActif = +e.target.value;
-  appliquerVeh(); reglagesEcrits(); ouvrirFiche(); charger();
+$('replier').onclick = () => {
+  const ouvert = $('replier').getAttribute('aria-expanded') !== 'true';
+  $('replier').setAttribute('aria-expanded', String(ouvert));
+  $('secStations').classList.toggle('replie', !ouvert);
 };
-const fiche = document.getElementById('fiche');
-function ouvrirFiche(){
-  fiche.hidden = false;
-  document.getElementById('vnom').value = REGL.vehicules[REGL.vehActif].nom;
+function replierStations(replie){
+  $('replier').hidden = !ROUTE;
+  $('replier').setAttribute('aria-expanded', String(!replie));
+  $('secStations').classList.toggle('replie', replie);
 }
-document.getElementById('vehPlus').onclick = () => {
-  REGL.vehicules.push({nom: 'Véhicule ' + (REGL.vehicules.length + 1),
+
+// ---------- Fiche station (feuille) ----------
+let STATION = null;
+function ouvrirStation(o, origine){
+  const {s, v} = o;
+  STATION = s;
+  const utilises = v ? v.lignes.map(l => l.ref) : [];
+  $('fsTitre').innerHTML = `${s.ville} <span class="cp" style="font-weight:400;color:var(--muted)">${s.cp}</span>`;
+  $('fsAdresse').innerHTML = s.adresse || '<i>adresse non renseignée</i>';
+  $('fsInfos').innerHTML =
+    (s.auto ? `<span>${ico('horloge')} automate 24 h/24</span>` : '') +
+    `<span>${ico('epingle')} ${ROUTE && s.ecart != null ? `${s.ecart.toFixed(1)} km du trajet · km ${Math.round(s.kmr)}` : `${s.d.toFixed(1)} km du repère`}</span>` +
+    (s.rupture ? `<span class="ko-lbl">${ico('alerte')} rupture : ${s.rupture}</span>` : '');
+  $('fsCarbs').innerHTML = FUELS.filter(([k]) => s.prix[k] != null).map(([k,l]) => {
+    const q = quand(s.maj[k]);
+    const ko = s.hs.has(RUPT[k]);
+    return `<li class="${utilises.includes(k) ? 'hi' : ''}${ko ? ' ko' : ''}"><span>${l}`+
+           `${ko ? ' <span class="ko-lbl">(en rupture)</span>' : ''}</span>`+
+           `<span class="dt${q.vieux ? ' vieux' : ''}">${q.txt}</span>`+
+           `<b>${s.prix[k].toFixed(3)} €</b></li>`;
+  }).join('') || '<li>Aucun prix déclaré.</li>';
+  ouvrirFeuille('ficheStation', origine);
+}
+$('fsCopier').onclick = async () => {
+  if(!STATION) return;
+  const txt = brut(`${STATION.adresse}, ${STATION.cp} ${STATION.ville}`);
+  try{ await navigator.clipboard.writeText(txt); majEtat('adresse copiée'); }
+  catch(e){ prompt('Copiez l\'adresse :', txt); }
+};
+
+// « Y aller » : choix de l'application memorise au premier usage. Defaut Android =
+// lien geo: (l'appareil propose ses applis) ; iPhone/iPad = Plans ; bureau =
+// OpenStreetMap. Liens ouverts par l'utilisateur : la CSP ne les borne pas (ce ne sont
+// pas des requetes de la page), aucun hote nouveau n'est contacte par la page elle-meme.
+const NAV_APPS = [
+  ['geo', 'Application par défaut', 'lien geo: — l\'appareil propose ses applis', s =>
+    `geo:${s.la},${s.lo}?q=${s.la},${s.lo}(${encodeURIComponent(brut(s.ville))})`],
+  ['magicearth', 'Magic Earth', '', s => `magicearth://?drive_to&lat=${s.la}&lon=${s.lo}`],
+  ['osmand', 'OsmAnd', '', s => `osmand.api://navigate?dest_lat=${s.la}&dest_lon=${s.lo}&profile=car&force=true`],
+  ['gmaps', 'Google Maps', '', s => `https://www.google.com/maps/dir/?api=1&destination=${s.la},${s.lo}`],
+  ['waze', 'Waze', '', s => `https://waze.com/ul?ll=${s.la},${s.lo}&navigate=yes`],
+  ['osm', 'OpenStreetMap', 'dans le navigateur', s => `https://www.openstreetmap.org/directions?to=${s.la}%2C${s.lo}`],
+  ['apple', 'Plans (Apple)', '', s => `https://maps.apple.com/?daddr=${s.la},${s.lo}`],
+];
+const UA = navigator.userAgent;
+const NAV_DEFAUT = /Android/i.test(UA) ? 'geo' : /iPhone|iPad|iPod/i.test(UA) ? 'apple' : 'osm';
+function naviguer(cle, s){
+  const app = NAV_APPS.find(a => a[0] === cle) || NAV_APPS.find(a => a[0] === NAV_DEFAUT);
+  const url = app[3](s);
+  if(/^https?:/.test(url)) window.open(url, '_blank', 'noopener');
+  else location.href = url;   // schema d'application (geo:, magicearth:, osmand.api:)
+}
+$('fsAller').onclick = () => {
+  if(!STATION) return;
+  if(NAV_APPS.some(a => a[0] === REGL.navApp)) naviguer(REGL.navApp, STATION);
+  else ouvrirFeuille('menuNav', $('fsAller'));   // premier usage : on demande, puis on memorise
+};
+$('navChoix').innerHTML = NAV_APPS.map(([k, nom, note]) =>
+  `<button type="button" class="choix-item" data-app="${k}">${ico(k === 'osm' || k === 'gmaps' || k === 'apple' ? 'carte' : 'navigation')} ${nom}`+
+  `<small>${note || (k === NAV_DEFAUT ? 'conseillé sur cet appareil' : '')}</small></button>`).join('');
+$('navChoix').querySelectorAll('[data-app]').forEach(b => b.onclick = () => {
+  REGL.navApp = b.dataset.app; reglagesBruts(); majNavApp();
+  fermerFeuille();
+  if(STATION) naviguer(REGL.navApp, STATION);
+});
+$('navApp').innerHTML = `<option value="">Demander au premier usage</option>` +
+  NAV_APPS.map(([k, nom]) => `<option value="${k}">${nom}${k === NAV_DEFAUT ? ' (conseillé ici)' : ''}</option>`).join('');
+function majNavApp(){ $('navApp').value = NAV_APPS.some(a => a[0] === REGL.navApp) ? REGL.navApp : ''; }
+$('navApp').onchange = () => { REGL.navApp = $('navApp').value || undefined; reglagesBruts(); };
+majNavApp();
+
+// ---------- Garage ----------
+$('carbs').onchange = () => { reglagesEcrits(); charger(); };
+majSelectVeh();
+$('veh').onchange = e => {
+  REGL.vehActif = +e.target.value;
+  appliquerVeh(); reglagesEcrits(); charger();
+};
+$('chipVeh').onclick = () => { appliquerVeh(); ouvrirFeuille('garage', $('chipVeh')); };
+$('vehPlus').onclick = () => {
+  REGL.vehicules.push({nom: 'Véhicule ' + (REGL.vehicules.length + 1), type: 'voiture',
     carbs: DEFAUT.slice(), conso: '', cuve: '', autonomie: '', reserve: ''});
   REGL.vehActif = REGL.vehicules.length - 1;
-  appliquerVeh(); majSelectVeh(); reglagesEcrits(); ouvrirFiche(); charger();
+  appliquerVeh(); majSelectVeh(); reglagesEcrits(); charger();
+  $('vnom').focus(); $('vnom').select();
 };
-document.getElementById('vehNom').onclick = () => {
-  if(fiche.hidden) ouvrirFiche(); else fiche.hidden = true;
-};
-document.getElementById('vehOk').onclick = () => {
+$('vehOk').onclick = () => {
   reglagesEcrits();                       // synchronise sous le nom courant
-  const nom = document.getElementById('vnom').value.trim();
+  const nom = $('vnom').value.trim();
   if(nom && nom !== REGL.vehicules[REGL.vehActif].nom){
     REGL.vehicules[REGL.vehActif].nom = nom;
     reglagesBruts();                      // renommage : ecriture directe
   }
-  majSelectVeh(); fiche.hidden = true; charger();
+  majSelectVeh(); majChip(); fermerFeuille(); charger();
 };
-document.getElementById('vehMoins').onclick = () => {
+$('vehMoins').onclick = () => {
   if(REGL.vehicules.length <= 1) return;
   if(!confirm(`Supprimer « ${REGL.vehicules[REGL.vehActif].nom} » ?`)) return;
   REGL.vehicules.splice(REGL.vehActif, 1);
   REGL.vehActif = 0;
   reglagesBruts();                        // suppression : ecriture directe
-  majSelectVeh(); appliquerVeh(); fiche.hidden = true; charger();
+  majSelectVeh(); appliquerVeh(); fermerFeuille(); charger();
 };
+$('vtype').onchange = () => { reglagesEcrits(); };
 
 // Import d'une fiche vehicule par l'URL — sert aussi a PARTAGER un profil :
 //   fuelpilot.html#veh=Nom|e85+e10|conso|cuve|reserve[|autonomie]
@@ -650,23 +704,36 @@ document.getElementById('vehMoins').onclick = () => {
   const m = location.hash.match(/^#veh=([^|]+)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)(?:\|([^|]*))?$/);
   if(!m) return;
   const nom = decodeURIComponent(m[1]);
-  const v = {nom,
+  const v = {nom, type: 'voiture',
     carbs: m[2] ? decodeURIComponent(m[2]).split('+') : DEFAUT.slice(),
     conso: decodeURIComponent(m[3]), cuve: decodeURIComponent(m[4]),
     reserve: decodeURIComponent(m[5]), autonomie: m[6] ? decodeURIComponent(m[6]) : ''};
   const i = REGL.vehicules.findIndex(x => x.nom === nom);
-  if(i >= 0) REGL.vehicules[i] = v; else REGL.vehicules.push(v);
+  if(i >= 0) REGL.vehicules[i] = Object.assign({type: REGL.vehicules[i].type}, v); else REGL.vehicules.push(v);
   REGL.vehActif = i >= 0 ? i : REGL.vehicules.length - 1;
   appliquerVeh(); majSelectVeh(); reglagesEcrits();
   history.replaceState(null, '', location.pathname);
 })();
-document.getElementById('sansCher').onchange = () => { reglagesEcrits(); rendu(); };
+$('sansCher').onchange = () => { reglagesEcrits(); rendu(); };
 
+// ---------- Chargement des prix ----------
 const SEL = encodeURIComponent("__SELECT__");
 const URL_API = "__API__";
 const PLAFOND = 400;      // stations chargees au maximum pour une emprise donnee
-const maj = document.getElementById('maj');
 let tronque = 0, seq = 0, minuteur = null, majCompte = () => {};
+// Etat (region aria-live) : fraicheur des prix + compteur ; un message ponctuel
+// (adresse copiee, position refusee) prend la place le temps de quelques secondes.
+let etatPrix = 'chargement…', etatTempo = null;
+function majEtat(ponctuel){
+  const el = $('etat');
+  if(ponctuel){
+    el.innerHTML = ponctuel;
+    clearTimeout(etatTempo); etatTempo = setTimeout(() => majEtat(), 4000);
+    return;
+  }
+  const c = $('compte').textContent;
+  el.innerHTML = etatPrix + (c ? ' · ' + esc(c) : '');
+}
 
 // Les stations suivent l'emprise de la carte : chaque deplacement ou dezoom
 // relance une requete bornee par la bbox visible. Le compteur `seq` annule les
@@ -710,15 +777,13 @@ function emprisesTrace(margeKm){
 
 async function charger(){
   const mien = ++seq;
-  const large = +document.getElementById('couloir').value;
-  // Hors itineraire : l'emprise de l'ecran. En itineraire : une suite d'emprises
-  // courtes le long du trace, pour ne rien manquer sur un long trajet.
-  const b = map.getBounds();
+  // Hors itineraire : l'emprise de l'ecran. En itineraire :
+  // une suite d'emprises courtes le long du trace, pour ne rien manquer sur un long trajet.
   const zones = ROUTE ? emprisesTrace(20)   // toujours le couloir maxi : la largeur
-                      : [{s:b.getSouth(), n:b.getNorth(), w:b.getWest(), e:b.getEast()}];
+                      : [emprise()];
   // choisie filtre localement, et le comparatif par largeur se fait sans recharger.
   const clause = clauseVue();
-  maj.textContent = 'chargement…';
+  etatPrix = 'chargement…'; majEtat();
   try{
     let rows = [], reste = 0;
     for(const z of zones){
@@ -744,45 +809,48 @@ async function charger(){
                              return Object.assign(s, {ecart: r.d, kmr: r.km}); })
                  .filter(s => s.ecart <= 20);
     }
-    maj.innerHTML = 'prix en direct · ' + new Date().toLocaleString('fr-FR',
+    etatPrix = 'prix en direct · ' + new Date().toLocaleString('fr-FR',
       {weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
   }catch(e){
     if(mien !== seq) return;
-    const vis = map.getBounds();
-    DATA = normalise(SNAPSHOT).filter(s => vis.contains([s.la, s.lo]));
+    const vis = emprise();
+    DATA = normalise(SNAPSHOT).filter(s => dansEmprise(vis, s.la, s.lo));
     tronque = 0;
-    maj.innerHTML = '<span style="color:#c02626">hors ligne</span> — relevé du '+SNAP_DATE;
+    etatPrix = '<span class="ko">hors ligne</span> — relevé du ' + SNAP_DATE;
   }
   rendu();
 }
 
-map.on('moveend zoomend', () => {
-  if(ROUTE){ rendu(); return; }      // couloir deja charge : simple refiltrage
-  clearTimeout(minuteur);
-  minuteur = setTimeout(charger, 400);
-});
-document.getElementById('couloir').onchange = () => { reglagesEcrits(); if(ROUTE) rendu(); };
-document.getElementById('conso').onchange =
-document.getElementById('cuve').onchange =
-document.getElementById('autonomie').onchange =
-document.getElementById('reserve').onchange = () => { reglagesEcrits(); rendu(); };
-['conso', 'cuve', 'autonomie'].forEach(id =>
-  document.getElementById(id).addEventListener('input', majEstimations));
-document.getElementById('queUtiles').onchange = () => { reglagesEcrits(); rendu(); };
-document.getElementById('sansPeage').onchange = () => {
+if(map){
+  map.on('moveend', () => {
+    if(ROUTE){ rendu(); return; }      // couloir deja charge : simple refiltrage
+    clearTimeout(minuteur);
+    minuteur = setTimeout(charger, 400);
+  });
+}
+$('couloir').onchange = () => { reglagesEcrits(); if(ROUTE) rendu(); };
+$('conso').onchange = $('cuve').onchange = $('autonomie').onchange =
+$('reserve').onchange = () => { reglagesEcrits(); rendu(); };
+['conso', 'cuve', 'autonomie'].forEach(id => $(id).addEventListener('input', majEstimations));
+$('queUtiles').onchange = () => { reglagesEcrits(); rendu(); };
+$('sansPeage').onchange = () => {
   reglagesEcrits();
-  if(ROUTE) document.getElementById('trajet').requestSubmit();
+  if(ROUTE) $('trajet').requestSubmit();
 };
 
+// ---------- Position et repere ----------
 // Le centre suit l'appareil : la page reste juste pour qui la recoit, sans rien
 // coder en dur de personnel. Le repere de secours ne sert que si la geoloc est
 // refusee, indisponible ou trop lente.
-function situer(lat, lon, libelle){
+let libelleRepere = 'Point de repère';
+function situer(lat, lon, libelle, explicite){
   CENTRE = [lat, lon];
+  libelleRepere = libelle;
   REGL.centre = [lat, lon]; reglagesEcrits();
-  repere.setLatLng(CENTRE).setTooltipContent(libelle + " — les distances partent d'ici");
-  map.setView(CENTRE, 13, {animate:!CALME});   // ~5 km autour du point ; declenche moveend -> rechargement
-  charger();
+  $('posMemo').hidden = false;
+  if(repere){ repere.setLngLat([lon, lat]); elRepere.title = libelle + " — les distances partent d'ici"; }
+  if(CARTE) CARTE.aller(CENTRE, 13, explicite);   // ~5 km autour du point ; moveend -> rechargement
+  else charger();
   chargerReferentiel().then(rendu).catch(() => {});   // le secteur suit le nouveau centre
   // Le titre suit la position (nom de commune via la Base Adresse Nationale) :
   // la page peut etre partagee, la commune du snapshot ne doit pas rester figee.
@@ -791,36 +859,104 @@ function situer(lat, lon, libelle){
     .then(j => {
       const c = j.features?.[0]?.properties?.city;
       if(c){
-        document.getElementById('lieu').textContent = ' — ' + c;
+        $('lieu').textContent = ' · ' + c;
         document.title = 'FillHop — ' + c;
       }
     }).catch(() => {});
 }
 function localiser(auto){
   if(!navigator.geolocation){
-    if(!auto) maj.textContent = 'géolocalisation non disponible';
+    if(!auto) majEtat('géolocalisation non disponible');
     return;
   }
-  maj.textContent = 'localisation…';
+  majEtat('localisation…');
+  $('maposition').classList.add('actif');
   navigator.geolocation.getCurrentPosition(
-    pos => situer(pos.coords.latitude, pos.coords.longitude, 'Ma position'),
-    ()  => { maj.textContent = Array.isArray(REGL.centre)
+    pos => { $('maposition').classList.remove('actif');
+             situer(pos.coords.latitude, pos.coords.longitude, 'Ma position', !auto); },
+    ()  => { $('maposition').classList.remove('actif');
+             majEtat(Array.isArray(REGL.centre)
                ? 'position refusée — repère mémorisé utilisé'
-               : 'position refusée — clic droit sur la carte pour poser le repère';
-             charger(); },
+               : 'position refusée — appui long sur la carte pour poser le repère');
+             // Refus au chargement : le premier chargement est deja en cours, rien a relancer.
+             if(!auto) ouvrirFeuille('menuPosition', $('maposition')); },
     {enableHighAccuracy: false, timeout: 8000, maximumAge: 300000});
 }
+$('maposition').onclick = () => localiser(false);
+$('posMoi').onclick = () => { fermerFeuille(); localiser(false); };
+$('posMemo').onclick = () => {
+  fermerFeuille();
+  if(Array.isArray(REGL.centre)) situer(REGL.centre[0], REGL.centre[1], 'Point de repère', true);
+};
+$('posMemo').hidden = !Array.isArray(REGL.centre);
+$('posAdresse').onsubmit = async e => {
+  e.preventDefault();
+  const q = $('posQ').value.trim();
+  if(!q) return;
+  try{
+    const g = await geocoder(q);
+    fermerFeuille();
+    situer(g.lat, g.lon, g.label, true);
+  }catch(err){ majEtat(esc(err.message)); }
+};
+$('optPosition').onclick = () => ouvrirFeuille('menuPosition', $('options'));
+// Reticule : viser le repere au centre de la carte.
+function reticule(on){
+  $('reticule').hidden = !on;
+  if(on) poserCran('apercu');
+}
+$('posCarte').onclick = () => { fermerFeuille(); if(CARTE) reticule(true); };
+$('reticuleOk').onclick = () => {
+  const c = map.getCenter();
+  reticule(false);
+  situer(c.lat, c.lng, 'Point de repère', true);
+};
+$('reticuleNon').onclick = () => reticule(false);
+// Appui long (tactile) ou clic droit (bureau) sur la carte = poser le repere.
+// Chrome Android emet aussi contextmenu sur l'appui long : on dedoublonne dans le temps.
+let dernierRepere = 0;
+function poserRepere(ll){
+  if(Date.now() - dernierRepere < 1000) return;
+  dernierRepere = Date.now();
+  if(navigator.vibrate) navigator.vibrate(15);
+  situer(ll.lat, ll.lng, 'Point de repère', true);
+}
+if(map){
+  map.on('contextmenu', e => { e.preventDefault(); poserRepere(e.lngLat); });
+  const cc = map.getCanvasContainer();
+  let minuteurAppui = null, p0 = null;
+  const annuler = () => { clearTimeout(minuteurAppui); minuteurAppui = null; };
+  cc.addEventListener('touchstart', e => {
+    if(e.touches.length !== 1) return annuler();
+    p0 = [e.touches[0].clientX, e.touches[0].clientY];
+    minuteurAppui = setTimeout(() => {
+      minuteurAppui = null;
+      const r = cc.getBoundingClientRect();
+      poserRepere(map.unproject([p0[0] - r.left, p0[1] - r.top]));
+    }, 600);
+  }, {passive: true});
+  cc.addEventListener('touchmove', e => {
+    if(minuteurAppui && p0 && Math.hypot(e.touches[0].clientX - p0[0], e.touches[0].clientY - p0[1]) > 10) annuler();
+  }, {passive: true});
+  cc.addEventListener('touchend', annuler, {passive: true});
+  cc.addEventListener('touchcancel', annuler, {passive: true});
+  // Un geste sur la carte referme la recherche ouverte (mobile).
+  map.on('dragstart', () => rechercheOuverte(false));
+  map.on('click', () => rechercheOuverte(false));
+}
+
 // ---------- Itineraire ----------
 // Geocodage : Base Adresse Nationale. Trace : Geoplateforme IGN (bdtopo-osrm).
 // Les deux sont publics, sans cle, et autorisent l'appel depuis un fichier local.
 const BAN = 'https://api-adresse.data.gouv.fr/search/';
 const ITI = 'https://data.geopf.fr/navigation/itineraire';
 let ROUTE = null;        // [[lon,lat], …] simplifie
-let traceLigne = null;
-const infoT = document.getElementById('infoTrajet');
+const infoT = $('infoTrajet');
+// Un depart vide ou « Ma position » vaut le repere courant.
+const maPosition = q => !q.trim() || /^ma position$/i.test(q.trim());
 
 async function geocoder(q){
-  if(!q.trim()) return {lon: CENTRE[1], lat: CENTRE[0], label: 'ma position'};
+  if(maPosition(q)) return {lon: CENTRE[1], lat: CENTRE[0], label: libelleRepere === 'Ma position' ? 'ma position' : 'le repère'};
   const r = await fetch(`${BAN}?q=${encodeURIComponent(q)}&limit=1`);
   if(!r.ok) throw new Error('géocodage indisponible');
   const j = await r.json();
@@ -867,27 +1003,27 @@ const trajetsLus = () => {
   try{ const t = JSON.parse(localStorage.getItem(CLE_TRAJETS)); return Array.isArray(t) ? t : []; }
   catch(e){ return []; }
 };
-const trajetCourant = () => ({dep: document.getElementById('depart').value.trim(),
-                              arr: document.getElementById('arrivee').value.trim(),
-                              sansPeage: document.getElementById('sansPeage').checked});
+const trajetCourant = () => ({dep: maPosition($('depart').value) ? '' : $('depart').value.trim(),
+                              arr: $('arrivee').value.trim(),
+                              sansPeage: $('sansPeage').checked});
 const memeTrajet = (x, y) => String(x.dep).toLowerCase() === String(y.dep).toLowerCase() &&
   String(x.arr).toLowerCase() === String(y.arr).toLowerCase() && !!x.sansPeage === !!y.sansPeage;
 const nomTrajet = t => `${t.dep || 'Ma position'} → ${t.arr}${t.sansPeage ? ' (sans péage)' : ''}`;
 function majTrajets(){
   const liste = trajetsLus();
-  const sel = document.getElementById('trajetsMemo');
+  const sel = $('trajetsMemo');
   // Options construites en DOM (texte, jamais HTML) : les noms viennent de la saisie.
   sel.replaceChildren(new Option('Trajets mémorisés…', ''),
     ...liste.map((t,i) => new Option(nomTrajet(t), String(i))));
   sel.hidden = !liste.length;
-  const b = document.getElementById('memoriser'), c = trajetCourant();
+  const b = $('memoriser'), c = trajetCourant();
   const deja = !!(ROUTE && c.arr && liste.some(t => memeTrajet(t, c)));
   b.hidden = !(ROUTE && c.arr);
   b.setAttribute('aria-pressed', String(deja));
-  b.textContent = deja ? '★ Mémorisé' : '☆ Mémoriser';
+  b.innerHTML = ico(deja ? 'etoilePleine' : 'etoile') + (deja ? ' Mémorisé' : ' Mémoriser');
   b.title = deja ? 'Retirer ce trajet des trajets mémorisés' : 'Mémoriser ce trajet';
 }
-document.getElementById('memoriser').onclick = () => {
+$('memoriser').onclick = () => {
   const c = trajetCourant();
   if(!c.arr) return;
   let liste = trajetsLus();
@@ -897,32 +1033,50 @@ document.getElementById('memoriser').onclick = () => {
   catch(e){ /* stockage refuse : rien a memoriser */ }
   majTrajets();
 };
-document.getElementById('trajetsMemo').onchange = e => {
+$('trajetsMemo').onchange = e => {
   const t = trajetsLus()[+e.target.value];
   e.target.value = '';
   if(!t) return;
-  document.getElementById('depart').value = t.dep || '';
-  document.getElementById('arrivee').value = t.arr || '';
-  document.getElementById('sansPeage').checked = !!t.sansPeage;
-  document.getElementById('trajet').requestSubmit();
+  $('depart').value = t.dep || '';
+  $('arrivee').value = t.arr || '';
+  $('sansPeage').checked = !!t.sansPeage;
+  $('trajet').requestSubmit();
 };
-['depart', 'arrivee'].forEach(id => document.getElementById(id).addEventListener('input', majTrajets));
-document.getElementById('sansPeage').addEventListener('change', majTrajets);
+['depart', 'arrivee'].forEach(id => $(id).addEventListener('input', majTrajets));
+$('sansPeage').addEventListener('change', majTrajets);
 window.addEventListener('storage', e => { if(e.key === CLE_TRAJETS) majTrajets(); });
 majTrajets();
+
+// Pilule de recherche (mobile) : un champ ferme, deux a l'ouverture.
+function rechercheOuverte(on){
+  if($('recherche').classList.contains('ouvert') === on) return;
+  $('recherche').classList.toggle('ouvert', on);
+  $('pilule').setAttribute('aria-expanded', String(on));
+  if(on){
+    if(!$('depart').value) $('depart').value = 'Ma position';
+    if(MOBILE.matches) poserCran('apercu');   // la feuille laisse la place aux champs
+    $('arrivee').focus();
+  }
+}
+$('pilule').onclick = () => rechercheOuverte(!$('recherche').classList.contains('ouvert'));
+document.addEventListener('echap', () => { rechercheOuverte(false); reticule(false); });
+function majPilule(){
+  const c = trajetCourant();
+  $('piluleTxt').textContent = ROUTE && c.arr ? `${c.dep || 'Ma position'} → ${c.arr}` : 'Où allez-vous ?';
+}
 
 async function calculerTrajet(ev){
   ev.preventDefault();
   infoT.textContent = 'calcul…';
   try{
     const [a, b] = await Promise.all([
-      geocoder(document.getElementById('depart').value),
-      geocoder(document.getElementById('arrivee').value)]);
+      geocoder($('depart').value),
+      geocoder($('arrivee').value)]);
     // « Sans péage » : moteur bdtopo-pgr + interdiction des autoroutes (verifie
     // le 09/08 : la contrainte est IGNOREE par bdtopo-osrm, respectee par pgr).
     // Approximation assumee : quelques autoroutes gratuites (A75...) sont
     // evitees aussi.
-    const sansP = document.getElementById('sansPeage').checked;
+    const sansP = $('sansPeage').checked;
     const u = `${ITI}?resource=${sansP ? 'bdtopo-pgr' : 'bdtopo-osrm'}&profile=car&optimization=fastest`+
               `&start=${a.lon},${a.lat}&end=${b.lon},${b.lat}&geometryFormat=geojson`+
               (sansP ? `&constraints=${encodeURIComponent('{"constraintType":"banned","key":"wayType","operator":"=","value":"autoroute"}')}` : '');
@@ -935,57 +1089,75 @@ async function calculerTrajet(ev){
     if(ROUTE[ROUTE.length-1] !== pts[pts.length-1]) ROUTE.push(pts[pts.length-1]);
     preparerKms();
 
-    if(traceLigne) map.removeLayer(traceLigne);
-    traceLigne = L.polyline(ROUTE.map(c => [c[1], c[0]]),
-      {color:'#1d4ed8', weight:5, opacity:.45}).addTo(map);
-    map.fitBounds(traceLigne.getBounds().pad(.08), {animate:!CALME});
+    if(CARTE){
+      CARTE.donnees('fh-trace', {type: 'FeatureCollection', features: [
+        {type: 'Feature', geometry: {type: 'LineString', coordinates: ROUTE}}]});
+      // Cadrage sur le trace : geste explicite (le bouton), donc autorise ; la feuille
+      // s'ouvre a moitie sur mobile, le cadrage laisse la place en bas.
+      let s = 90, n = -90, w = 180, e = -180;
+      ROUTE.forEach(([lo, la]) => { s = Math.min(s, la); n = Math.max(n, la); w = Math.min(w, lo); e = Math.max(e, lo); });
+      const h = map.getContainer().clientHeight;
+      const pad = MOBILE.matches
+        ? {top: 100, bottom: Math.min(Math.round(h / 2) + 16, Math.max(0, h - 160)), left: 24, right: 24}
+        : {top: 60, bottom: 60, left: 60, right: 60};
+      CARTE.cadrer({s, n, w, e}, pad, true);
+    }
     infoT.textContent = `${(j.distance/1000).toFixed(0)} km · ${Math.round(j.duration/60)} min`+
       `${sansP ? ' · sans autoroute' : ''} · ${a.label} → ${b.label}`;
-    document.getElementById('effacer').hidden = false;
-    majTrajets();
+    $('effacer').hidden = false;
+    majTrajets(); majPilule();
+    replierStations(true);
+    if(MOBILE.matches){ rechercheOuverte(false); deplier('moitie'); }
     charger();
   }catch(e){
     infoT.textContent = e.message;
   }
 }
-document.getElementById('trajet').onsubmit = calculerTrajet;
+$('trajet').onsubmit = calculerTrajet;
 // Inverser depart et arrivee = le trajet retour en un clic. Un champ vide vaut
 // « ma position » (cf. geocoder), donc l'echange reste juste quand le depart
 // est implicite. Trace deja affiche : on relance le calcul, sinon on se
 // contente d'echanger les deux champs.
-document.getElementById('inverser').onclick = () => {
-  const d = document.getElementById('depart'), a = document.getElementById('arrivee');
+$('inverser').onclick = () => {
+  const d = $('depart'), a = $('arrivee');
   [d.value, a.value] = [a.value, d.value];
-  if(ROUTE) document.getElementById('trajet').requestSubmit();
+  if(ROUTE) $('trajet').requestSubmit();
 };
-document.getElementById('effacer').onclick = () => {
+$('effacer').onclick = () => {
   ROUTE = null; KMS = null;
-  if(traceLigne){ map.removeLayer(traceLigne); traceLigne = null; }
-  document.getElementById('effacer').hidden = true;
-  majTrajets();
+  if(CARTE) CARTE.donnees('fh-trace', TRACE_VIDE);
+  $('effacer').hidden = true;
+  majTrajets(); majPilule(); replierStations(false);
   infoT.textContent = '';
-  situer(CENTRE[0], CENTRE[1], repere.getTooltip().getContent().split(' —')[0]);
+  situer(CENTRE[0], CENTRE[1], libelleRepere, true);
 };
 
-document.getElementById('maposition').onclick = () => localiser(false);
-document.getElementById('repere').onclick = () => {
-  if(Array.isArray(REGL.centre)) situer(REGL.centre[0], REGL.centre[1], 'Point de repère');
-};
-map.on('contextmenu', e => situer(e.latlng.lat, e.latlng.lng, 'Point de repère'));
+// ---------- Menus : fonds et apparence, options, aide ----------
+function majFonds(){
+  document.querySelectorAll('[data-fond]').forEach(b =>
+    b.setAttribute('aria-pressed', String((REGL.fond || 'plan') === b.dataset.fond)));
+}
+document.querySelectorAll('[data-fond]').forEach(b => b.onclick = () => {
+  REGL.fond = b.dataset.fond; reglagesBruts(); majFonds();
+  if(CARTE) CARTE.fond(REGL.fond);
+});
+document.querySelectorAll('button[data-theme]').forEach(b => b.onclick = () => {
+  REGL.theme = b.dataset.theme === 'auto' ? undefined : b.dataset.theme; reglagesBruts(); appliquerTheme();
+});
+$('fonds').onclick = () => { majFonds(); ouvrirFeuille('menuFonds', $('fonds')); };
+$('options').onclick = () => ouvrirFeuille('menuOptions', $('options'));
+$('aideBtn').onclick = () => ouvrirFeuille('aide', $('aideBtn'));
+$('optAide').onclick = () => ouvrirFeuille('aide', $('options'));
 
-// Cadrage initial deterministe (~10 km autour du repere de depart). On n'utilise plus
-// fitBounds : Leaflet y fige le zoom sur la taille du conteneur au moment de
-// l'appel, et une mise en page pas encore stabilisee (hauteur en vh, polices,
-// defilement restaure au rechargement) donnait un cadrage de travers dans
-// Firefox — constate le 09/08/2026.
-if(REGL.sansCher === false) document.getElementById('sansCher').checked = false;
-if(REGL.couloir) document.getElementById('couloir').value = REGL.couloir;
-if(REGL.queUtiles === false) document.getElementById('queUtiles').checked = false;
-if(REGL.sansPeage) document.getElementById('sansPeage').checked = true;
+// Cadrage initial deterministe (~10 km autour du repere de depart), sans fitBounds ni
+// animation : aucun recadrage sans geste de l'utilisateur.
+if(REGL.sansCher === false) $('sansCher').checked = false;
+if(REGL.couloir) $('couloir').value = REGL.couloir;
+if(REGL.queUtiles === false) $('queUtiles').checked = false;
+if(REGL.sansPeage) $('sansPeage').checked = true;
 appliquerVeh();
-
-map.invalidateSize(false);
-map.setView(CENTRE, ZOOM0, {animate:!CALME});
+appliquerTheme();
+majFonds();
 
 // Le referentiel (60 km) part en parallele du premier chargement : la carte
 // s'affiche sans l'attendre, puis se recolore des qu'il arrive.
@@ -1028,13 +1200,13 @@ async function verifierVersion(){
   }catch(e){ /* hors ligne : on reessaiera au prochain retour sur l'onglet */ }
 }
 function montrerNouvelleVersion(){
-  if(document.getElementById('majDispo')) return;
+  if($('majDispo')) return;
   const d = document.createElement('div');
   d.id = 'majDispo'; d.className = 'maj-dispo'; d.setAttribute('role', 'status');
   const t = document.createElement('span');
   t.textContent = 'Nouvelle version de FillHop disponible';
   const b = document.createElement('button');
-  b.type = 'button'; b.className = 'btn'; b.textContent = 'Recharger';
+  b.type = 'button'; b.className = 'btn primaire'; b.textContent = 'Recharger';
   b.onclick = () => location.reload();
   const x = document.createElement('button');
   x.type = 'button'; x.className = 'btn'; x.textContent = 'Plus tard';
