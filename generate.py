@@ -16,6 +16,11 @@ Usage :
     ./generate.py                    # ecrit ~/Documents/fuelpilot.html
     ./generate.py --open             # genere puis ouvre dans le navigateur
     ./generate.py --lat 48.85 --lon 2.35 --rayon 15   # centre du snapshot de repli
+    ./generate.py --sans-snapshot    # pas d'appel au flux (snapshot de repli vide)
+
+Bibliotheques : MapLibre GL JS (BSD-3) est telechargee une fois dans ~/.cache/fuelpilot
+(empreinte SHA-384 verifiee) puis inlinee. Sans reseau, deposer maplibre-gl.js et
+maplibre-gl.css (dist/ du paquet npm maplibre-gl, meme version) dans ce cache.
 """
 import argparse
 import base64
@@ -37,14 +42,21 @@ SELECT = ("id,latitude,longitude,cp,ville,adresse,gazole_prix,gazole_maj,"
           "e85_prix,e85_maj,gplc_prix,gplc_maj,horaires_automate_24_24,"
           "carburants_rupture_temporaire,carburants_rupture_definitive")
 CACHE = os.path.expanduser("~/.cache/fuelpilot")
-LEAFLET = {
-    "__LEAFLET_CSS__": (
-        "leaflet.css",
-        "sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H"),
-    "__LEAFLET_JS__": (
-        "leaflet.js",
-        "sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"),
+# MapLibre GL JS 5.24.0 : derniere branche livree en un seul fichier classique (UMD)
+# avec son worker embarque (cree en blob:, d'ou worker-src blob: dans la CSP). La
+# branche 6 n'existe qu'en module ESM avec un worker separe, incompatible avec le
+# fichier unique. Empreintes relevees sur le paquet npm maplibre-gl@5.24.0 (dist/).
+MAPLIBRE_VERSION = "5.24.0"
+MAPLIBRE = {
+    "__MAPLIBRE_CSS__": (
+        "maplibre-gl.css",
+        "sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK"),
+    "__MAPLIBRE_JS__": (
+        "maplibre-gl.js",
+        "sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp"),
 }
+# Scripts du gabarit, dans l'ordre d'assemblage (un seul <script> a la fin de la page).
+SCRIPTS = ["plan.js", "ui/icones.js", "ui/feuilles.js", "ui/fond.js", "app.js"]
 
 
 def _get(url, raw=False):
@@ -69,39 +81,48 @@ def snapshot(lat, lon, km):
     return rows
 
 
-def leaflet_inline(name, sri):
+def biblio_inline(name, sri):
     """Inline plutot que CDN : aucune dependance reseau a l'ouverture, donc
     aucune surface de compromission CDN a verifier a chaque chargement."""
     os.makedirs(CACHE, exist_ok=True)
     path = os.path.join(CACHE, name)
     if not os.path.exists(path):
         with open(path, "wb") as f:
-            f.write(_get(f"https://unpkg.com/leaflet@1.9.4/dist/{name}",
+            f.write(_get(f"https://unpkg.com/maplibre-gl@{MAPLIBRE_VERSION}/dist/{name}",
                          raw=True))
     blob = open(path, "rb").read()
     got = "sha384-" + base64.b64encode(hashlib.sha384(blob).digest()).decode()
     if got != sri:
         sys.exit(f"empreinte {name} inattendue :\n  attendu {sri}\n  obtenu {got}")
-    return blob.decode("utf-8")
+    text = blob.decode("utf-8")
+    assert "</script" not in text and "</style" not in text, f"{name} refermerait sa balise"
+    return text
 
 
 def csp_meta(html):
-    """CSP calculee sur le HTML final : script-src par empreinte des deux scripts
-    inline (pas de 'unsafe-inline'), connect-src borne aux trois API publiques et a
-    la page elle-meme ('self' : controle de version).
+    """CSP calculee sur le HTML final : script-src par empreinte de CHAQUE script
+    inline (pas de 'unsafe-inline'), connect-src borne aux API publiques et a la
+    page elle-meme ('self' : controle de version).
+    MapLibre : son worker est cree depuis un blob: (worker-src ; child-src = repli
+    des navigateurs sans worker-src) ; tuiles vectorielles, glyphes et sprites IGN
+    sont charges en fetch (connect-src data.geopf.fr), tout comme les tuiles raster
+    (orthophoto IGN, OpenStreetMap en secours) : d'ou tile.openstreetmap.org dans
+    connect-src, en plus d'img-src.
     Une chaine tierce (flux des stations, URL #veh=) qui reussirait malgre
     l'echappement a injecter un <script> ne s'executerait pas, et ne pourrait
     rien exfiltrer ailleurs que vers ces hotes."""
     hashes = ["'sha256-%s'" % base64.b64encode(
                   hashlib.sha256(m.group(1).encode("utf-8")).digest()).decode()
               for m in re.finditer(r"<script>(.*?)</script>", html, re.S)]
-    assert len(hashes) == 2, "deux scripts inline attendus"
+    assert len(hashes) == html.count("<script"), "chaque script inline doit etre hache"
+    assert len(hashes) >= 2, "bibliotheque + application attendues"
     return ('<meta http-equiv="Content-Security-Policy" content="'
             "default-src 'none'; script-src " + " ".join(hashes) + "; "
+            "worker-src blob:; child-src blob:; "
             "style-src 'unsafe-inline'; "
-            "img-src 'self' data: https://data.geopf.fr https://tile.openstreetmap.org; "
+            "img-src 'self' data: blob: https://data.geopf.fr https://tile.openstreetmap.org; "
             "connect-src 'self' https://data.economie.gouv.fr https://data.geopf.fr "
-            "https://api-adresse.data.gouv.fr; "
+            "https://api-adresse.data.gouv.fr https://tile.openstreetmap.org; "
             "base-uri 'none'; form-action 'self'\">")
 
 
@@ -114,12 +135,14 @@ def lire(nom):
 
 
 def assembler():
-    """Le gabarit vit dans src/ (index.html, app.css, plan.js, app.js) ; le
-    livrable reste UN fichier : tout est inline ici, dans cet ordre. plan.js
-    (algorithme des pleins) precede app.js pour rester testable seul (node)."""
+    """Le gabarit vit dans src/ (index.html, app.css, plan.js, ui/*.js, app.js) ; le
+    livrable reste UN fichier : tout est inline ici, dans l'ordre de SCRIPTS. plan.js
+    (algorithme des pleins) vient en tete pour rester testable seul (node) ; les
+    modules d'interface (icones, feuilles, fond de carte) precedent app.js qui les
+    utilise."""
     html = lire("index.html")
     html = html.replace("__APP_CSS__", lire("app.css").rstrip("\n"))
-    html = html.replace("__APP_JS__", lire("plan.js").rstrip("\n") + "\n\n" + lire("app.js").rstrip("\n"))
+    html = html.replace("__APP_JS__", "\n\n".join(lire(n).rstrip("\n") for n in SCRIPTS))
     return html
 
 
@@ -136,14 +159,25 @@ def main():
     ap.add_argument("--out", default=None)  # defaut : ~/Documents/fuelpilot.html
     ap.add_argument("--open", action="store_true",
                     help="ouvrir la page dans le navigateur par defaut")
+    ap.add_argument("--sans-snapshot", action="store_true",
+                    help="ne pas interroger le flux : snapshot de repli vide")
     a = ap.parse_args()
 
     out = a.out or os.path.expanduser("~/Documents/fuelpilot.html")
 
-    rows = snapshot(a.lat, a.lon, a.rayon)
+    # Le snapshot n'est qu'un repli hors ligne : si le flux est inaccessible au
+    # moment de la generation (reseau filtre, API en panne), la page se genere
+    # quand meme, avec un repli vide, et l'avertissement le dit.
+    rows = []
+    if not a.sans_snapshot:
+        try:
+            rows = snapshot(a.lat, a.lon, a.rayon)
+        except Exception as e:   # urllib, JSON, cle manquante : meme repli
+            print(f"avertissement : flux des prix inaccessible ({e}) — "
+                  "snapshot de repli vide", file=sys.stderr)
     html = assembler()
-    for token, (name, sri) in LEAFLET.items():
-        html = html.replace(token, leaflet_inline(name, sri))
+    for token, (name, sri) in MAPLIBRE.items():
+        html = html.replace(token, biblio_inline(name, sri))
     for token, val in (("__LAT__", repr(a.lat)), ("__LON__", repr(a.lon)),
                        ("__NOM__", a.nom), ("__RAYON__", str(a.rayon)),
                        ("__SELECT__", SELECT), ("__API__", API),
@@ -155,7 +189,8 @@ def main():
 
     with open(out, "w", encoding="utf-8") as f:
         f.write(html)
-    print(f"{out} — {len(rows)} stations dans le snapshot de repli")
+    print(f"{out} — {len(rows)} stations dans le snapshot de repli — "
+          f"{os.path.getsize(out) / 1024:.0f} Ko")
 
     if a.open:
         webbrowser.open("file://" + out)
