@@ -2,119 +2,269 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 __CSP__
 <meta name="fuelpilot-build" content="__BUILD__">
+<meta name="color-scheme" content="light dark">
 <title>FillHop</title>
-<style>__LEAFLET_CSS__</style>
-<script>__LEAFLET_JS__</script>
+<style>__MAPLIBRE_CSS__</style>
+<script>__MAPLIBRE_JS__</script>
 <style>
 __APP_CSS__
 </style>
 </head>
 <body>
-<header>
-  <h1><svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="22" x2="15" y2="22"/><line x1="4" y1="9" x2="14" y2="9"/><path d="M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18"/><path d="M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 4 0V9.83a2 2 0 0 0-.59-1.42L18 5"/></svg> FillHop<span id="lieu"></span></h1>
-  <label class="ctl"><svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg> <select id="veh"></select></label>
-  <button class="ctl btn" id="vehPlus" type="button" title="Ajouter un véhicule" aria-label="Ajouter un véhicule"><svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-  <button class="ctl btn" id="vehNom" type="button" title="Ouvrir la fiche du véhicule" aria-label="Ouvrir la fiche du véhicule"><svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
-  <label class="case" id="filtreCher"><input type="checkbox" id="sansCher" checked> Masquer les trop chères</label>
-  <button class="ctl btn" id="maposition" type="button"><svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><circle cx="12" cy="12" r="7"/></svg> Ma position</button>
-  <button class="ctl btn" id="repere" type="button"><svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z"/></svg> Point de repère</button>
-  <div id="maj">chargement…</div>
-</header>
-
-<div id="fiche" class="fiche" hidden>
-  <label class="ctl">Nom <input id="vnom" placeholder="Ma voiture"></label>
-  <span class="ctl" id="carbs"></span>
-  <label class="ctl">Conso
-    <input id="conso" type="number" step="0.1" min="3" max="25" placeholder="6,5"> L/100</label>
-  <label class="ctl" title="Distance parcourue avec un plein — souvent affichée par la voiture">Autonomie d'un plein
-    <input id="autonomie" type="number" step="10" min="50" max="3000" placeholder="600"> km</label>
-  <label class="ctl" title="Facultatif si l'autonomie est renseignée">ou réservoir
-    <input id="cuve" type="number" step="1" min="10" max="150" placeholder="50"> L</label>
-  <label class="ctl">Réserve
-    <input id="reserve" type="number" step="5" min="0" max="200" placeholder="30"> km</label>
-  <button class="btn" id="vehOk" type="button"><svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Enregistrer</button>
-  <button class="btn" id="vehMoins" type="button" title="Supprimer ce véhicule" aria-label="Supprimer ce véhicule"><svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
-</div>
-
-<div class="barre">
-  <form id="trajet">
-    <select id="trajetsMemo" aria-label="Trajets mémorisés" hidden></select>
-    <input id="depart" placeholder="Départ — vide = ma position" autocomplete="off">
-    <button class="fl" id="inverser" type="button"
-            title="Inverser départ et arrivée (trajet retour)"
-            aria-label="Inverser départ et arrivée"><svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg></button>
-    <input id="arrivee" placeholder="Arrivée — adresse, ville…" autocomplete="off">
-    <label class="ctl">Couloir
-      <select id="couloir">
-        <option value="1">1 km</option>
-        <option value="2">2 km</option>
-        <option value="5">5 km</option>
-        <option value="10" selected>10 km</option>
-        <option value="20">20 km</option>
-      </select>
-    </label>
-    <label class="case"><input type="checkbox" id="queUtiles" checked> Ne garder que les arrêts du plan</label>
-    <label class="case"><input type="checkbox" id="sansPeage"> Sans péage</label>
-    <button class="btn" type="submit">Stations sur le trajet</button>
-    <button class="btn" id="effacer" type="button" hidden><svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Effacer</button>
-    <button class="btn" id="memoriser" type="button" hidden aria-pressed="false">☆ Mémoriser</button>
-    <span id="infoTrajet"></span>
-  </form>
-  <div id="plan"></div>
-</div>
-
-<div id="map"></div>
-
-<div class="wrap">
-  <div class="legend">
-    <span class="sw" style="background:var(--vert)"></span> le moins cher
-    <span class="sw" style="background:var(--bleu)"></span> dans la norme
-    <span class="sw" style="background:var(--rouge)"></span> cher
-    <span id="echelle"></span>
-    <span style="margin-left:auto" id="compte"></span>
+<div id="app">
+  <div id="map" aria-label="Carte des stations"></div>
+  <div id="sansWebgl" class="sans-webgl" hidden>
+    <p><span data-ico="alerte"></span> <b>Carte indisponible</b> : ce navigateur n'a pas WebGL (ou l'accélération
+    graphique est désactivée). La liste des stations, le garage et le plan de pleins fonctionnent sans la carte.</p>
   </div>
-  <table>
-    <thead><tr>
-      <th data-k="prix">Prix ▲</th><th data-k="dist" id="thDist">Distance</th>
-      <th data-k="ville">Commune</th><th data-k="adresse">Adresse</th>
-      <th data-k="maj">Relevé</th>
-    </tr></thead>
-    <tbody id="tb"></tbody>
-  </table>
-  <p class="note">
-    Source : <a href="https://data.economie.gouv.fr/explore/dataset/prix-des-carburants-en-france-flux-instantane-v2/"
-    target="_blank" rel="noopener">flux instantané officiel du ministère de l'Économie</a>
-    — mêmes données que
-    <a href="https://www.prix-carburants.gouv.fr" target="_blank" rel="noopener">prix-carburants.gouv.fr</a>,
-    rechargées à chaque ouverture de cette page.
-    <b>Les stations suivent la carte</b> : chaque déplacement ou dézoom recharge
-    celles de la zone visible (400 au maximum ; au-delà, le compteur le signale).
-    Les distances partent du <b>point de repère</b> (pastille bleue) : votre position
-    si vous autorisez la géolocalisation, sinon le dernier repère mémorisé sur cet
-    appareil — <b>clic droit sur la carte</b> pour le poser où vous voulez.
-    « SP le moins cher » retient, station par station, le meilleur du E10 / SP95 / SP98.
-    <b>Itinéraire</b> : saisissez une arrivée pour ne garder que les stations situées
-    dans le couloir choisi autour du trajet (10 km par défaut ; tracé IGN, adresses
-    géocodées sur la Base Adresse Nationale) ; zoomer sur un tronçon affine la liste
-    à ce tronçon, le couloir bornant lui le détour acceptable.
-    La flèche <b><svg class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg></b> entre les deux champs échange départ et arrivée : le trajet
-    <b>retour</b> en un clic, recalculé aussitôt si un tracé est affiché.
-    Avec la conso et l'<b>autonomie d'un plein</b> (ou le réservoir) renseignées, la page
-    propose <b>où faire le plein</b> : plein au départ, arrêts choisis au moins cher dans le
-    couloir, plein à l'arrivée, en gardant la réserve choisie (en km).
-    Les stations <b>en rupture</b> du carburant demandé sont écartées : le flux conserve
-    leur dernier prix, mais le carburant n'y est pas disponible.
-    « Masquer les trop chères » retire de la carte <i>et</i> du tableau les stations
-    au-dessus du 9<sup>e</sup> décile du secteur — un seuil en percentile plutôt qu'en
-    centimes, pour qu'il ne vieillisse pas quand les prix dérivent. Décochable.
-    « Mes 2 pleins » ne garde que les stations servant à la fois l'E85 et un SP,
-    classées sur la somme des deux prix ; chaque carburant y est <b>coloré sur sa
-    propre échelle</b>, si bien qu'une ligne verte au-dessus d'une ligne bleue
-    signale un bon E85 avec un SP quelconque. Clic sur une ligne ou un repère : itinéraire.
-  </p>
+
+  <div id="haut" class="haut">
+    <div class="recherche" id="recherche">
+      <button class="pilule" id="pilule" type="button" aria-expanded="false" aria-controls="trajet">
+        <span data-ico="loupe"></span><span id="piluleTxt">Où allez-vous ?</span>
+      </button>
+      <form id="trajet">
+        <div class="champs">
+          <label class="champ"><span>Départ</span>
+            <input id="depart" placeholder="Ma position" autocomplete="off"></label>
+          <button class="fl" id="inverser" type="button"
+                  title="Inverser départ et arrivée (trajet retour)"
+                  aria-label="Inverser départ et arrivée"><span data-ico="echange"></span></button>
+          <label class="champ"><span>Arrivée</span>
+            <input id="arrivee" placeholder="Adresse, ville…" autocomplete="off"></label>
+        </div>
+        <div class="ligne">
+          <label class="ctl">Couloir
+            <select id="couloir" aria-label="Largeur du couloir autour du trajet">
+              <option value="1">1 km</option>
+              <option value="2">2 km</option>
+              <option value="5">5 km</option>
+              <option value="10" selected>10 km</option>
+              <option value="20">20 km</option>
+            </select>
+          </label>
+          <label class="case"><input type="checkbox" id="sansPeage"> Sans péage</label>
+          <select id="trajetsMemo" class="ctl" aria-label="Trajets mémorisés" hidden></select>
+        </div>
+        <div class="ligne">
+          <button class="btn primaire" type="submit"><span data-ico="route"></span> Stations sur le trajet</button>
+          <button class="btn" id="memoriser" type="button" hidden aria-pressed="false"><span data-ico="etoile"></span> Mémoriser</button>
+          <button class="btn" id="effacer" type="button" hidden><span data-ico="croix"></span> Effacer</button>
+        </div>
+        <p id="infoTrajet" class="info" aria-live="polite"></p>
+      </form>
+    </div>
+    <button class="chip" id="chipVeh" type="button" aria-haspopup="dialog" title="Garage : véhicule, carburants, autonomie">
+      <span id="chipIco" class="chip-ico"></span>
+      <span class="chip-txt"><span id="chipNom">Véhicule</span><span id="chipCarb" class="chip-carb"></span></span>
+    </button>
+  </div>
+
+  <div class="boutons-carte">
+    <button class="rond" id="maposition" type="button" title="Ma position" aria-label="Ma position"><span data-ico="viseur"></span></button>
+    <button class="rond" id="fonds" type="button" title="Fond de carte et apparence" aria-label="Fond de carte et apparence" aria-haspopup="dialog"><span data-ico="couches"></span></button>
+  </div>
+
+  <div id="reticule" class="reticule" hidden>
+    <div class="reticule-croix" aria-hidden="true"><span data-ico="reticule"></span></div>
+    <div class="reticule-actions">
+      <span>Déplacez la carte pour viser le point de repère</span>
+      <button class="btn primaire" id="reticuleOk" type="button"><span data-ico="coche"></span> Poser le repère ici</button>
+      <button class="btn" id="reticuleNon" type="button">Annuler</button>
+    </div>
+  </div>
+
+  <aside id="panneau" class="panneau" data-cran="apercu" aria-label="Stations et plan de pleins">
+    <button class="poignee" id="poignee" type="button" aria-label="Déplier le panneau" aria-expanded="false"></button>
+    <div class="panneau-tete" id="panneauTete">
+      <div class="panneau-titre">
+        <h2 id="titreListe">Autour de vous<span id="lieu"></span></h2>
+        <p id="etat" class="etat" role="status" aria-live="polite">chargement…</p>
+      </div>
+      <button class="rond petit" id="options" type="button" title="Options" aria-label="Options" aria-haspopup="dialog"><span data-ico="reglages"></span></button>
+      <button class="rond petit" id="aideBtn" type="button" title="Comment ça marche" aria-label="Comment ça marche" aria-haspopup="dialog"><span data-ico="aide"></span></button>
+    </div>
+    <div class="panneau-corps" id="corps">
+      <section id="blocPlan" class="bloc-plan" hidden aria-labelledby="titrePlan">
+        <div class="bloc-plan-tete">
+          <h3 id="titrePlan"><span data-ico="pompe"></span> Plan de pleins</h3>
+          <label class="inter"><input type="checkbox" id="queUtiles" role="switch" checked> Seulement les arrêts du plan</label>
+        </div>
+        <div id="plan"></div>
+      </section>
+      <section id="secStations" aria-labelledby="titreStations">
+        <div class="stations-tete">
+          <h3 id="titreStations">Stations</h3>
+          <button class="replier" id="replier" type="button" aria-expanded="true" aria-controls="listeZone" hidden>
+            <span data-ico="bas"></span></button>
+        </div>
+        <div id="listeZone">
+          <p class="legende">
+            <span><span class="sw" style="background:var(--vert)"></span> la moins chère</span>
+            <span><span class="sw" style="background:var(--bleu)"></span> dans la norme</span>
+            <span><span class="sw" style="background:var(--rouge)"></span> chère</span>
+            <span><span class="sw sw-plan"></span> plan</span>
+          </p>
+          <p class="compte"><span id="compte"></span> <span id="echelle"></span></p>
+          <div class="tri" role="group" aria-label="Trier la liste">
+            <span>Trier :</span>
+            <button type="button" data-k="prix" aria-pressed="true">Prix</button>
+            <button type="button" data-k="dist" id="thDist" aria-pressed="false">Distance</button>
+            <button type="button" data-k="ville" aria-pressed="false">Commune</button>
+            <button type="button" data-k="maj" aria-pressed="false">Relevé</button>
+          </div>
+          <ol id="liste" class="stations" aria-label="Stations"></ol>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <div class="voile" id="voile" hidden></div>
+
+  <section class="modale" id="ficheStation" role="dialog" aria-modal="true" aria-labelledby="fsTitre" hidden>
+    <div class="modale-tete"><h2 id="fsTitre">Station</h2>
+      <button class="rond petit fermer" type="button" aria-label="Fermer"><span data-ico="croix"></span></button></div>
+    <p id="fsAdresse" class="adresse"></p>
+    <p id="fsInfos" class="infos"></p>
+    <ul id="fsCarbs" class="fuels"></ul>
+    <p class="note">Dates = dernier relevé déclaré par la station ; en rouge au-delà de 4 jours.</p>
+    <div class="actions">
+      <button class="btn primaire" id="fsAller" type="button"><span data-ico="navigation"></span> Y aller</button>
+      <button class="btn" id="fsCopier" type="button"><span data-ico="copier"></span> Copier l'adresse</button>
+    </div>
+  </section>
+
+  <section class="modale" id="menuNav" role="dialog" aria-modal="true" aria-labelledby="navTitre" hidden>
+    <div class="modale-tete"><h2 id="navTitre">Y aller avec…</h2>
+      <button class="rond petit fermer" type="button" aria-label="Fermer"><span data-ico="croix"></span></button></div>
+    <p class="note">Votre choix est mémorisé sur cet appareil ; modifiable dans les options.</p>
+    <div id="navChoix" class="choix"></div>
+  </section>
+
+  <section class="modale" id="garage" role="dialog" aria-modal="true" aria-labelledby="garageTitre" hidden>
+    <div class="modale-tete"><h2 id="garageTitre"><span data-ico="garage"></span> Garage</h2>
+      <button class="rond petit fermer" type="button" aria-label="Fermer"><span data-ico="croix"></span></button></div>
+    <div class="ligne">
+      <label class="ctl">Véhicule <select id="veh" aria-label="Véhicule actif"></select></label>
+      <button class="btn" id="vehPlus" type="button"><span data-ico="plus"></span> Ajouter</button>
+    </div>
+    <div id="fiche" class="fiche">
+      <div class="ligne">
+        <label class="ctl">Nom <input id="vnom" placeholder="Ma voiture"></label>
+        <label class="ctl">Type
+          <select id="vtype">
+            <option value="voiture">Voiture</option>
+            <option value="utilitaire">Utilitaire</option>
+            <option value="moto">Moto</option>
+            <option value="campingcar">Camping-car</option>
+          </select></label>
+      </div>
+      <p class="sous-titre">Carburants (cumulables : la station doit servir tous ceux cochés)</p>
+      <div class="ligne" id="carbs"></div>
+      <div class="ligne">
+        <label class="ctl">Conso
+          <input id="conso" type="number" step="0.1" min="3" max="25" placeholder="6,5" inputmode="decimal"> L/100</label>
+        <label class="ctl" title="Distance parcourue avec un plein — souvent affichée par la voiture">Autonomie d'un plein
+          <input id="autonomie" type="number" step="10" min="50" max="3000" placeholder="600" inputmode="numeric"> km</label>
+      </div>
+      <div class="ligne">
+        <label class="ctl" title="Facultatif si l'autonomie est renseignée">ou réservoir
+          <input id="cuve" type="number" step="1" min="10" max="150" placeholder="50" inputmode="numeric"> L</label>
+        <label class="ctl">Réserve
+          <input id="reserve" type="number" step="5" min="0" max="200" placeholder="30" inputmode="numeric"> km</label>
+      </div>
+      <p class="note">Aucune source ouverte ne donne la capacité du réservoir : l'autonomie, que vous connaissez
+        ou que la voiture affiche, prime. Partage de la fiche : <code>#veh=Nom|e85+e10|conso|réservoir|réserve|autonomie</code>.</p>
+      <div class="actions">
+        <button class="btn primaire" id="vehOk" type="button"><span data-ico="coche"></span> Enregistrer</button>
+        <button class="btn" id="vehMoins" type="button" title="Supprimer ce véhicule"><span data-ico="poubelle"></span> Supprimer</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="modale" id="menuFonds" role="dialog" aria-modal="true" aria-labelledby="fondsTitre" hidden>
+    <div class="modale-tete"><h2 id="fondsTitre">Fond de carte</h2>
+      <button class="rond petit fermer" type="button" aria-label="Fermer"><span data-ico="croix"></span></button></div>
+    <div class="choix" role="group" aria-label="Fond de carte">
+      <button type="button" class="choix-item" data-fond="plan" aria-pressed="true"><span data-ico="carte"></span> Plan IGN <small>vectoriel, atténué</small></button>
+      <button type="button" class="choix-item" data-fond="ortho" aria-pressed="false"><span data-ico="image"></span> Vue aérienne <small>orthophotos IGN</small></button>
+    </div>
+    <h3>Apparence</h3>
+    <div class="choix" role="group" aria-label="Apparence">
+      <button type="button" class="choix-item" data-theme="auto" aria-pressed="true"><span data-ico="ecran"></span> Automatique <small>suit l'appareil</small></button>
+      <button type="button" class="choix-item" data-theme="clair" aria-pressed="false"><span data-ico="soleil"></span> Clair</button>
+      <button type="button" class="choix-item" data-theme="sombre" aria-pressed="false"><span data-ico="lune"></span> Sombre</button>
+    </div>
+  </section>
+
+  <section class="modale" id="menuPosition" role="dialog" aria-modal="true" aria-labelledby="posTitre" hidden>
+    <div class="modale-tete"><h2 id="posTitre">Point de repère</h2>
+      <button class="rond petit fermer" type="button" aria-label="Fermer"><span data-ico="croix"></span></button></div>
+    <p class="note">Les distances et le secteur de référence des couleurs partent de ce point.
+      Appui long (ou clic droit) sur la carte le pose aussi.</p>
+    <div class="choix">
+      <button type="button" class="choix-item" id="posMoi"><span data-ico="viseur"></span> Ma position <small>géolocalisation de l'appareil</small></button>
+      <button type="button" class="choix-item" id="posCarte"><span data-ico="reticule"></span> Choisir sur la carte <small>avec un réticule</small></button>
+      <button type="button" class="choix-item" id="posMemo" hidden><span data-ico="maison"></span> Dernier repère mémorisé</button>
+    </div>
+    <form id="posAdresse" class="ligne">
+      <label class="ctl champ-large"><span data-ico="epingle"></span><input id="posQ" placeholder="Une adresse, une ville…" autocomplete="off" aria-label="Adresse du repère"></label>
+      <button class="btn" type="submit">OK</button>
+    </form>
+  </section>
+
+  <section class="modale" id="menuOptions" role="dialog" aria-modal="true" aria-labelledby="optTitre" hidden>
+    <div class="modale-tete"><h2 id="optTitre">Options</h2>
+      <button class="rond petit fermer" type="button" aria-label="Fermer"><span data-ico="croix"></span></button></div>
+    <label class="inter grande"><input type="checkbox" id="sansCher" role="switch" checked> Masquer les trop chères
+      <small>les 10 % les plus chères du secteur (60 km autour du repère) disparaissent de la carte et de la liste</small></label>
+    <div class="choix">
+      <button type="button" class="choix-item" id="optPosition"><span data-ico="position"></span> Point de repère… <small>ma position, sur la carte, une adresse</small></button>
+    </div>
+    <label class="ctl champ-large">Application pour « Y aller »
+      <select id="navApp" aria-label="Application de navigation"></select></label>
+    <div class="choix">
+      <button type="button" class="choix-item" id="optAide"><span data-ico="aide"></span> Comment ça marche</button>
+    </div>
+  </section>
+
+  <section class="modale" id="aide" role="dialog" aria-modal="true" aria-labelledby="aideTitre" hidden>
+    <div class="modale-tete"><h2 id="aideTitre">Comment ça marche</h2>
+      <button class="rond petit fermer" type="button" aria-label="Fermer"><span data-ico="croix"></span></button></div>
+    <ul class="puces">
+      <li><b>Prix en direct</b> : flux instantané officiel du ministère de l'Économie (déclaration obligatoire des
+        stations, mise à jour ~10 min), rechargé à chaque ouverture et à chaque déplacement de la carte — les
+        stations suivent la zone affichée (400 au maximum ; au-delà, le compteur le signale).</li>
+      <li><b>Couleurs</b> : vert = la moins chère affichée (ex æquo compris), bleu = dans la norme, rouge = les 10 %
+        les plus chères du secteur (60 km autour du repère), noir = repères du plan. Avec plusieurs carburants cochés,
+        chaque carburant est coloré sur sa propre échelle et le classement se fait sur la somme ; « SP le moins cher »
+        retient le meilleur du E10 / SP95 / SP98 station par station. Les stations en rupture du carburant demandé
+        sont écartées.</li>
+      <li><b>Point de repère</b> : votre position si vous l'autorisez, sinon le dernier repère mémorisé sur cet
+        appareil. Appui long ou clic droit sur la carte pour le poser ; menu Position dans les options ;
+        <code>#pos=lat,lon</code> par l'URL. Les distances partent de là.</li>
+      <li><b>Itinéraire</b> : adresses géocodées sur la Base Adresse Nationale, tracé Géoplateforme IGN, option sans
+        péage ; seules les stations du couloir choisi (1 à 20 km) restent affichées, le couloir bornant le détour
+        acceptable. La flèche ⇄ échange départ et arrivée (trajet retour).</li>
+      <li><b>Plan de pleins</b> : avec la conso et l'autonomie d'un plein (ou le réservoir) de la fiche véhicule, la
+        page dit où faire le plein — plein au départ, arrêts choisis au moins cher dans le couloir en comptant les
+        détours en carburant et en minutes, plein à l'arrivée, en gardant la réserve choisie (en km).</li>
+    </ul>
+    <h3>Sources et licences</h3>
+    <ul class="puces">
+      <li>Prix : <a href="https://data.economie.gouv.fr/explore/dataset/prix-des-carburants-en-france-flux-instantane-v2/" target="_blank" rel="noopener">data.economie.gouv.fr</a>
+        (Licence Ouverte) — mêmes données que prix-carburants.gouv.fr.</li>
+      <li>Fond de carte : Plan IGN et orthophotos © IGN — Géoplateforme ; OpenStreetMap (© les contributeurs)
+        en secours seulement si l'IGN ne répond pas.</li>
+      <li>Itinéraires : Géoplateforme IGN. Géocodage : Base Adresse Nationale.</li>
+      <li>Bibliothèques : <a href="https://maplibre.org" target="_blank" rel="noopener">MapLibre GL JS</a> (BSD-3),
+        icônes <a href="https://lucide.dev" target="_blank" rel="noopener">Lucide</a> (MIT). Code FillHop : MIT.
+        Aucun serveur, aucun compte, aucun traqueur : la page ne parle qu'à ces trois services publics.</li>
+    </ul>
+  </section>
 </div>
 
 <script>
