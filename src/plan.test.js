@@ -5,7 +5,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {optimiserPlan, pleinsExtremites, autonomieUtile} = require('./plan.js');
+const {optimiserPlan, pleinsExtremites, autonomieUtile, coutVoyage, prixMedian, economieVsMedian} = require('./plan.js');
 
 // Comparaison avec tolerance : les couts en euros passent par des
 // multiplications flottantes (ex: 1.2*2*53 = 127.19999999999999).
@@ -181,4 +181,80 @@ test('ni autonomie ni reservoir exploitable : null', () => {
 
 test('autonomie saisie sans conso : l\'autonomie suffit a situer les arrets', () => {
   assert.deepStrictEqual(autonomieUtile(0, 0, 650, 30), {plein: 650, A: 620, source: 'autonomie'});
+});
+
+// ---- coutVoyage : plein de depart (meilleur prix a moins de 15 km) + achats en route ----
+
+test('coutVoyage : plein de depart au meilleur prix a moins de 15 km, puis achats', () => {
+  // D (km 5, 1.0) et D2 (km 10, 0.9) sont dans les 15 km : plein de depart a 0.9.
+  // S (km 80, e 0, p 1.2) est l'unique arret : achats = 1.2 * 1 * (130-80) = 60.
+  // Plein de depart = 0.9 * 1 * (80 + 0) = 72 ; voyage = 132.
+  const D = {s: 'D', km: 5, e: 0, p: 1.0}, D2 = {s: 'D2', km: 10, e: 0, p: 0.9};
+  const S = {s: 'S', km: 80, e: 0, p: 1.2};
+  const cand = [D, D2, S];
+  const r = optimiserPlan(cand, 100, 130, 1);
+  assert.deepStrictEqual(r.plan.map(x => x.s), ['S']);
+  assert.ok(presque(coutVoyage(cand, r, 130, 1), 132));
+});
+
+test('coutVoyage : aucun arret necessaire -> le plein de depart couvre tout le trajet', () => {
+  const D = {s: 'D', km: 3, e: 0, p: 1.5};
+  const r = optimiserPlan([D], 100, 80, 2);
+  assert.ok(presque(coutVoyage([D], r, 80, 2), 1.5 * 2 * 80));
+});
+
+test('coutVoyage : null sans station a moins de 15 km du depart, null si infaisable', () => {
+  const S = {s: 'S', km: 80, e: 0, p: 1.2};
+  assert.strictEqual(coutVoyage([S], optimiserPlan([S], 100, 130, 1), 130, 1), null);
+  assert.strictEqual(coutVoyage([], {plan: null}, 130, 1), null);
+});
+
+// ---- prixMedian ----
+
+test('prixMedian : nombre impair de candidats -> la valeur du milieu', () => {
+  const cand = [{p: 1.9}, {p: 1.5}, {p: 1.7}];
+  assert.strictEqual(prixMedian(cand), 1.7);
+});
+
+test('prixMedian : nombre pair -> moyenne des deux du milieu ; vide -> null', () => {
+  const cand = [{p: 1.9}, {p: 1.5}, {p: 1.7}, {p: 1.6}];
+  assert.ok(presque(prixMedian(cand), 1.65));
+  assert.strictEqual(prixMedian([]), null);
+});
+
+// ---- economieVsMedian : reference = memes arrets possibles, tous au prix median ----
+
+test('economie nulle quand tous les prix sont egaux', () => {
+  // Trois stations a 1.0 : la reference (mediane 1.0) est identique au plan reel.
+  const cand = [{s: 'D', km: 5, e: 0, p: 1.0}, {s: 'S1', km: 80, e: 0, p: 1.0}, {s: 'S2', km: 170, e: 0, p: 1.0}];
+  const r = optimiserPlan(cand, 100, 250, 1);
+  const v = coutVoyage(cand, r, 250, 1);
+  const e = economieVsMedian(cand, 100, 250, 1, v);
+  assert.strictEqual(e.median, 1.0);
+  assert.ok(presque(e.economie, 0));
+  assert.ok(presque(e.reference, v));
+});
+
+test('economie positive quand une station moins chere est sur le trajet', () => {
+  // D (km 5, 1.2), CHER (km 70, 1.4), PASCHER (km 70, 1.0) : mediane 1.2.
+  // Reel : plein de depart a 1.2 sur 70 km = 84, puis 1.0 * 80 = 80 -> 164.
+  // Reference (tout a 1.2) : 1.2 * 70 + 1.2 * 80 = 180 ; economie = 16.
+  const cand = [{s: 'D', km: 5, e: 0, p: 1.2}, {s: 'CHER', km: 70, e: 0, p: 1.4}, {s: 'PASCHER', km: 70, e: 0, p: 1.0}];
+  const r = optimiserPlan(cand, 100, 150, 1);
+  const v = coutVoyage(cand, r, 150, 1);
+  assert.ok(presque(v, 164));
+  const e = economieVsMedian(cand, 100, 150, 1, v);
+  assert.strictEqual(e.median, 1.2);
+  assert.ok(presque(e.reference, 180));
+  assert.ok(presque(e.economie, 16));
+});
+
+test('economie : infaisable ou voyage non chiffrable -> null', () => {
+  const cand = [{s: 'D', km: 5, e: 0, p: 1.0}];
+  assert.strictEqual(economieVsMedian(cand, 100, 500, 1, null), null);   // voyage null
+  assert.strictEqual(economieVsMedian([], 100, 500, 1, 10), null);       // aucun candidat
+  // Faisable en reel mais la version mediane l'est tout autant : ici trajet infaisable des deux cotes.
+  const r = optimiserPlan(cand, 100, 500, 1);
+  assert.strictEqual(r.plan, null);
+  assert.strictEqual(economieVsMedian(cand, 100, 500, 1, coutVoyage(cand, r, 500, 1)), null);
 });

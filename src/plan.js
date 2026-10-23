@@ -81,5 +81,43 @@ function autonomieUtile(conso, cuve, autonomie, reserve){
   return {plein, A: plein - Math.max(0, reserve || 0), source: autonomie > 0 ? 'autonomie' : 'reservoir'};
 }
 
+// Cout du voyage COMPLET : le plein de depart se paie aussi. Il est value au meilleur
+// prix disponible a moins de `rayon` km du point de depart (null si aucune station
+// dans ce rayon : on ne sait pas chiffrer le plein de depart). Deplace d'app.js le
+// 23/10/2026 (phase 2), meme formule. r = resultat d'optimiserPlan sur `cand`.
+function coutVoyage(cand, r, total, lkm, rayon = 15){
+  if(!r || r.plan === null) return null;
+  const pd = Math.min(...cand.filter(c => c.km <= rayon).map(c => c.p));
+  if(!isFinite(pd)) return null;
+  const kmDep = r.plan.length ? r.plan[0].km + r.plan[0].e : total;
+  return pd * lkm * Math.min(kmDep, total) + r.coutAchats;
+}
+
+// Mediane des prix au litre des candidats du couloir ; null sans candidat.
+function prixMedian(cand){
+  if(!cand.length) return null;
+  const px = cand.map(c => c.p).sort((a, b) => a - b);
+  const m = px.length >> 1;
+  return px.length % 2 ? px[m] : (px[m - 1] + px[m]) / 2;
+}
+
+// Economie du plan par rapport a des « pleins au prix median » : la reference est le
+// MEME optimiserPlan sur les MEMES candidats, tous les prix remplaces par la mediane
+// (plein de depart a la mediane aussi) ; economie = reference - carburant reel du
+// voyage. Une reference a prix uniformes ne choisit ses arrets que sur les detours et
+// la penalite d'arret : c'est ce que paierait un conducteur qui s'arrete « n'importe
+// ou » dans le couloir. voyage = coutVoyage reel (null -> null). Renvoie
+// {economie, median, reference}, ou null si infaisable ou non chiffrable.
+function economieVsMedian(cand, A, total, lkm, voyage){
+  const median = prixMedian(cand);
+  if(median == null || voyage == null) return null;
+  const rm = optimiserPlan(cand.map(c => Object.assign({}, c, {p: median})), A, total, lkm);
+  if(rm.plan === null) return null;
+  const kmDep = rm.plan.length ? rm.plan[0].km + rm.plan[0].e : total;
+  const reference = median * lkm * Math.min(kmDep, total) + rm.coutAchats;
+  return {economie: reference - voyage, median, reference};
+}
+
 // Export Node (tests) ; sans effet dans la page, ou `module` n'existe pas.
-if(typeof module !== 'undefined' && module.exports) module.exports = {optimiserPlan, pleinsExtremites, autonomieUtile};
+if(typeof module !== 'undefined' && module.exports)
+  module.exports = {optimiserPlan, pleinsExtremites, autonomieUtile, coutVoyage, prixMedian, economieVsMedian};

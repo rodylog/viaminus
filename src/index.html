@@ -47,6 +47,7 @@ __APP_CSS__
             </select>
           </label>
           <label class="case"><input type="checkbox" id="sansPeage"> Sans péage</label>
+          <label class="case"><input type="checkbox" id="allerRetour"> Aller-retour</label>
           <select id="trajetsMemo" class="ctl" aria-label="Trajets mémorisés" hidden></select>
         </div>
         <div class="ligne">
@@ -90,10 +91,15 @@ __APP_CSS__
     <div class="panneau-corps" id="corps">
       <section id="blocPlan" class="bloc-plan" hidden aria-labelledby="titrePlan">
         <div class="bloc-plan-tete">
-          <h3 id="titrePlan"><span data-ico="pompe"></span> Plan de pleins</h3>
-          <label class="inter"><input type="checkbox" id="queUtiles" role="switch" checked> Seulement les arrêts du plan</label>
+          <h3 id="titrePlan"><span data-ico="pompe"></span> <span id="planTrajet">Plan de pleins</span></h3>
+          <span id="planMeta" class="plan-meta"></span>
         </div>
-        <div id="plan"></div>
+        <p id="planEtat" class="visuellement-cache" role="status" aria-live="polite"></p>
+        <div id="plan" class="heros"></div>
+        <div class="bloc-plan-pied">
+          <label class="inter"><input type="checkbox" id="queUtiles" role="switch" checked> Seulement les arrêts du plan</label>
+          <button class="btn" id="partagerPlan" type="button" title="Lien vers ce trajet et ce véhicule"><span data-ico="partager"></span> Partager le plan</button>
+        </div>
       </section>
       <section id="secStations" aria-labelledby="titreStations">
         <div class="stations-tete">
@@ -150,7 +156,9 @@ __APP_CSS__
     <div class="ligne">
       <label class="ctl">Véhicule <select id="veh" aria-label="Véhicule actif"></select></label>
       <button class="btn" id="vehPlus" type="button"><span data-ico="plus"></span> Ajouter</button>
+      <button class="btn" id="vehAssistant" type="button" title="Assistant en trois écrans : véhicule, position, c'est prêt"><span data-ico="estimer"></span> Assistant</button>
     </div>
+    <p id="garageMsg" class="msg" role="status" aria-live="polite"></p>
     <div id="fiche" class="fiche">
       <div class="ligne">
         <label class="ctl">Nom <input id="vnom" placeholder="Ma voiture"></label>
@@ -158,18 +166,21 @@ __APP_CSS__
           <select id="vtype">
             <option value="voiture">Voiture</option>
             <option value="utilitaire">Utilitaire</option>
-            <option value="moto">Moto</option>
+            <option value="moto">Scooter / moto</option>
             <option value="campingcar">Camping-car</option>
           </select></label>
+        <label class="ctl" id="vcatLbl">Catégorie <select id="vcat" aria-label="Catégorie du véhicule"></select></label>
       </div>
       <p class="sous-titre">Carburants (cumulables : la station doit servir tous ceux cochés)</p>
       <div class="ligne" id="carbs"></div>
       <div class="ligne">
         <label class="ctl">Conso
-          <input id="conso" type="number" step="0.1" min="3" max="25" placeholder="6,5" inputmode="decimal"> L/100</label>
+          <input id="conso" type="number" step="0.1" min="1" max="30" placeholder="6,5" inputmode="decimal"> L/100</label>
+        <button class="btn" id="vehEstimer" type="button" title="Estimer la conso d'après le type, la catégorie et le carburant"><span data-ico="estimer"></span> Estimer</button>
         <label class="ctl" title="Distance parcourue avec un plein — souvent affichée par la voiture">Autonomie d'un plein
           <input id="autonomie" type="number" step="10" min="50" max="3000" placeholder="600" inputmode="numeric"> km</label>
       </div>
+      <p id="consoSource" class="note" hidden></p>
       <div class="ligne">
         <label class="ctl" title="Facultatif si l'autonomie est renseignée">ou réservoir
           <input id="cuve" type="number" step="1" min="10" max="150" placeholder="50" inputmode="numeric"> L</label>
@@ -180,7 +191,72 @@ __APP_CSS__
         ou que la voiture affiche, prime. Partage de la fiche : <code>#veh=Nom|e85+e10|conso|réservoir|réserve|autonomie</code>.</p>
       <div class="actions">
         <button class="btn primaire" id="vehOk" type="button"><span data-ico="coche"></span> Enregistrer</button>
+        <button class="btn" id="vehPartager" type="button" title="Lien d'import de cette fiche"><span data-ico="partager"></span> Partager</button>
         <button class="btn" id="vehMoins" type="button" title="Supprimer ce véhicule"><span data-ico="poubelle"></span> Supprimer</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="modale assistant" id="assistant" role="dialog" aria-modal="true" aria-labelledby="asTitre" hidden>
+    <div class="modale-tete">
+      <h2 id="asTitre">Votre véhicule</h2>
+      <span class="as-compteur" id="asCompteur" aria-live="polite">1 / 3</span>
+      <button class="btn" id="asPasser" type="button" title="Usage minimal : les prix autour de vous">Passer</button>
+    </div>
+    <div class="as-ecran" id="asEcran1">
+      <p class="note">Trois questions pour calculer vos pleins. Tout reste dans votre navigateur, rien n'est envoyé.</p>
+      <p class="sous-titre">Type</p>
+      <div class="as-types" id="asTypes" role="group" aria-label="Type de véhicule"></div>
+      <div class="as-cats" id="asCats" role="group" aria-label="Catégorie"></div>
+      <p class="sous-titre">Carburant(s) — choisissez au moins un</p>
+      <div class="ligne" id="asCarbs"></div>
+      <label class="case" id="asHybrideLbl"><input type="checkbox" id="asHybride"> Hybride</label>
+      <label class="ctl as-principal" for="asAutonomie">Autonomie d'un plein, en km</label>
+      <div class="ligne as-principal-ligne">
+        <input id="asAutonomie" type="number" step="10" min="50" max="3000" placeholder="600" inputmode="numeric">
+        <span>km</span>
+      </div>
+      <p class="note">Ce que le tableau de bord affiche après un plein. C'est le chiffre le plus sûr : aucune source ouverte ne donne la capacité du réservoir.</p>
+      <p class="sous-titre">Consommation, en L/100 km</p>
+      <div class="ligne as-conso-choix" role="group" aria-label="Consommation">
+        <button type="button" class="btn" id="asConsoConnue" aria-pressed="true">Je la connais</button>
+        <button type="button" class="btn" id="asConsoEstimer" aria-pressed="false"><span data-ico="estimer"></span> Estimer</button>
+        <input id="asConso" type="number" step="0.1" min="1" max="30" placeholder="6,5" inputmode="decimal" aria-label="Consommation en litres aux 100 km">
+        <span>L/100</span>
+      </div>
+      <p id="asConsoSource" class="note" aria-live="polite"></p>
+      <div class="ligne">
+        <label class="ctl">Réservoir (facultatif) <input id="asCuve" type="number" step="1" min="10" max="150" placeholder="50" inputmode="numeric"> L</label>
+        <label class="ctl">Réserve <input id="asReserve" type="number" step="5" min="0" max="200" value="30" inputmode="numeric"> km</label>
+      </div>
+      <p id="asErreur" class="erreur" role="alert"></p>
+      <div class="actions">
+        <button class="btn primaire" id="asSuite1" type="button">Continuer <span data-ico="suivant"></span></button>
+      </div>
+    </div>
+    <div class="as-ecran" id="asEcran2" hidden>
+      <p class="note">Les distances et les couleurs partent de ce point. Vous pourrez le changer à tout moment.</p>
+      <div class="choix">
+        <button type="button" class="choix-item" id="asPosMoi"><span data-ico="viseur"></span> Ma position <small>géolocalisation de l'appareil</small></button>
+        <button type="button" class="choix-item" id="asPosCarte"><span data-ico="reticule"></span> Choisir sur la carte <small>avec un réticule</small></button>
+      </div>
+      <form id="asPosAdresse" class="ligne">
+        <label class="ctl champ-large"><span data-ico="epingle"></span><input id="asPosQ" placeholder="Une adresse, une ville…" autocomplete="off" aria-label="Adresse du repère"></label>
+        <button class="btn" type="submit">OK</button>
+      </form>
+      <p id="asPosMsg" class="note" role="status" aria-live="polite"></p>
+      <div class="actions">
+        <button class="btn" id="asRetour2" type="button"><span data-ico="precedent"></span> Retour</button>
+        <button class="btn" id="asPlusTard" type="button">Plus tard <span data-ico="suivant"></span></button>
+      </div>
+    </div>
+    <div class="as-ecran" id="asEcran3" hidden>
+      <p class="as-pret"><span data-ico="coche"></span> C'est prêt</p>
+      <ul class="puces" id="asResume"></ul>
+      <p class="note"><span data-ico="cadenas"></span> Tout reste dans votre navigateur, rien n'est envoyé.</p>
+      <div class="actions">
+        <button class="btn primaire" id="asOuAllez" type="button"><span data-ico="loupe"></span> Où allez-vous ?</button>
+        <button class="btn" id="asFin" type="button">Terminer</button>
       </div>
     </div>
   </section>
@@ -251,7 +327,17 @@ __APP_CSS__
         acceptable. La flèche ⇄ échange départ et arrivée (trajet retour).</li>
       <li><b>Plan de pleins</b> : avec la conso et l'autonomie d'un plein (ou le réservoir) de la fiche véhicule, la
         page dit où faire le plein — plein au départ, arrêts choisis au moins cher dans le couloir en comptant les
-        détours en carburant et en minutes, plein à l'arrivée, en gardant la réserve choisie (en km).</li>
+        détours en carburant et en minutes, plein à l'arrivée, en gardant la réserve choisie (en km). Le
+        chiffre-héros est le carburant du voyage, plein de départ compris ; l'économie se mesure contre les mêmes
+        arrêts possibles « au prix médian » du couloir. Les mini-barres comparent les couloirs : toucher une barre
+        change le couloir.</li>
+      <li><b>Aller-retour</b> : la case du formulaire ajoute le retour (second itinéraire, même moteur) ; le plan
+        couvre la boucle, le plein du retour devient une étape, les trajets mémorisés le retiennent (⇄).</li>
+      <li><b>Partager</b> : « Partager le plan » donne un lien <code>#trajet=départ|arrivée|couloir|options&amp;veh=…</code>
+        (départ vide = « Ma position », jamais une coordonnée) ; la fiche véhicule se partage par <code>#veh=…</code>.</li>
+      <li><b>Assistant</b> : au premier lancement, trois écrans (véhicule, position, c'est prêt) ; la conso peut
+        être estimée d'après le catalogue ADEME Car Labelling (médianes par catégorie, E85 = essence × 1,25).
+        Accessible ensuite par le bouton « Assistant » du garage.</li>
     </ul>
     <h3>Sources et licences</h3>
     <ul class="puces">

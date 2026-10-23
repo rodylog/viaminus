@@ -12,8 +12,8 @@ const SP = [["e10","E10"],["sp95","SP95"],["sp98","SP98"]];
 const CASES = [["e85","E85"],["e10","E10"],["sp95","SP95"],["sp98","SP98"],
                ["spmin","SP le - cher"],["gazole","Gazole"],["gplc","GPLc"]];
 const DEFAUT = ["e85"];
-// Type de vehicule : ne sert qu'a l'icone du chip (l'assistant vehicule viendra plus tard).
-const TYPES = {voiture: 'Voiture', utilitaire: 'Utilitaire', moto: 'Moto', campingcar: 'Camping-car'};
+// Type de vehicule (icone du chip, table de conso) ; la categorie (v.cat) affine l'estimation.
+const TYPES = {voiture: 'Voiture', utilitaire: 'Utilitaire', moto: 'Scooter / moto', campingcar: 'Camping-car'};
 
 // Les reglages survivent au rechargement : sans cela, chaque F5 remettait les
 // cases par defaut et faisait perdre la selection en cours.
@@ -25,6 +25,9 @@ function reglagesLus(){
                       localStorage.getItem('carte-carburants:reglages')) || {};
   }catch(e){ return {}; }
 }
+// Premier lancement = aucun reglage memorise (nouvelle ni ancienne cle) : l'assistant
+// vehicule s'ouvre, sauf si l'URL porte deja une fiche (#veh=) ou un trajet (#trajet=).
+const PREMIER = (() => { try{ return !localStorage.getItem(CLE) && !localStorage.getItem('carte-carburants:reglages'); }catch(e){ return false; } })();
 const REGL = reglagesLus();
 // Migration : l'ancien format (reglages a plat) devient le vehicule 1 du garage.
 if(!Array.isArray(REGL.vehicules) || !REGL.vehicules.length){
@@ -61,6 +64,7 @@ function reglagesEcrits(){
   const v = REGL.vehicules[REGL.vehActif];
   v.carbs = choix();
   v.type = $('vtype').value;
+  v.cat = $('vcat').value || undefined;
   v.conso = $('conso').value;
   v.cuve  = $('cuve').value;
   v.autonomie = $('autonomie').value;
@@ -69,6 +73,7 @@ function reglagesEcrits(){
   REGL.couloir  = $('couloir').value;
   REGL.queUtiles = $('queUtiles').checked;
   REGL.sansPeage = $('sansPeage').checked;
+  REGL.allerRetour = $('allerRetour').checked;
   reglagesBruts();
   majSelectVeh();   // le garage a pu s'enrichir depuis un autre onglet
   majChip();
@@ -81,6 +86,8 @@ function appliquerVeh(){
   const v = REGL.vehicules[REGL.vehActif];
   document.querySelectorAll('#carbs input').forEach(i => i.checked = v.carbs.includes(i.value));
   $('vtype').value = TYPES[v.type] ? v.type : 'voiture';
+  majCats(v.cat);
+  $('consoSource').hidden = true;
   $('conso').value = v.conso || '';
   $('cuve').value  = v.cuve || '';
   $('autonomie').value = v.autonomie || '';
@@ -98,6 +105,15 @@ function majEstimations(){
   const auto = +$('autonomie').value;
   $('autonomie').placeholder = conso > 0 && cuve > 0 ? `≈ ${Math.round(cuve / conso * 100)}` : '600';
   $('cuve').placeholder = conso > 0 && auto > 0 ? `≈ ${Math.round(auto * conso / 100)}` : '50';
+}
+// Categorie (citadine, SUV, scooter…) selon le type : alimente l'estimation de conso.
+// Un type a une seule categorie (utilitaire, camping-car) n'affiche pas le choix.
+function majCats(voulue){
+  const cats = CATEGORIES_CONSO[$('vtype').value] || [];
+  const cour = voulue || $('vcat').value;
+  $('vcat').replaceChildren(...cats.map(([k, l]) => new Option(l, k)));
+  if(cats.some(c => c[0] === cour)) $('vcat').value = cour;
+  $('vcatLbl').hidden = cats.length < 2;
 }
 // Chip vehicule (en haut a droite) : icone du type, nom, carburants coches.
 function majChip(){
@@ -148,9 +164,11 @@ elRepere.title = 'Point de repère — les distances partent d\'ici';
 const repere = CARTE ? CARTE.marqueur(CENTRE[0], CENTRE[1], elRepere) : null;
 // Trace du trajet (couche GeoJSON, remise apres chaque changement de style).
 const TRACE_VIDE = {type: 'FeatureCollection', features: []};
+// Aller-retour : le retour est un second trait, decale de quelques pixels pour se lire.
 if(CARTE) CARTE.couche('fh-trace', {type: 'geojson', data: TRACE_VIDE},
   {type: 'line', layout: {'line-cap': 'round', 'line-join': 'round'},
-   paint: {'line-color': '#1d4ed8', 'line-width': 5, 'line-opacity': 0.45}});
+   paint: {'line-color': '#1d4ed8', 'line-width': 5, 'line-opacity': 0.45,
+           'line-offset': ['case', ['==', ['get', 'sens'], 'retour'], 6, 0]}});
 
 let MARQUEURS = [];   // marqueurs HTML des stations et reperes du plan, refaits a chaque rendu
 let DATA = [], sortKey = 'prix', sortAsc = true;
@@ -312,9 +330,8 @@ function rendu(){
   if(ROUTE){
     const large = +$('couloir').value;
     const vue = emprise();
-    DATA.forEach(s => { if(s.ecart == null){
-      const r = distTrace(s.la, s.lo); s.ecart = r.d; s.kmr = r.km; } });
-    source = DATA.filter(s => s.ecart <= large && dansEmprise(vue, s.la, s.lo));
+    DATA.forEach(s => { if(s.ecart == null) situerSurTrace(s); });
+    source = DATA.filter(s => s.ecart != null && s.ecart <= large && dansEmprise(vue, s.la, s.lo));
   }
   const list = source.map(s => ({s, v: pick(s, sel)})).filter(o => o.v);
   const n = list.length;
@@ -385,8 +402,12 @@ function rendu(){
   let tri = [...gardees].sort(ordre);
   majCompte(ecartees ? ` · ${ecartees} trop chère${ecartees>1?'s':''} masquée${ecartees>1?'s':''}` : '');
 
-  // ---- Plan de pleins : plein au depart, arrets choisis au moins cher ----
-  const etapeNum = new Map();
+  // ---- Plan de pleins : carte-heros (phase 2, 23/10/2026) ----
+  // Chiffre-heros = carburant du voyage (plein de depart compris) ; sous-ligne = arrets,
+  // minutes, economie vs « pleins au prix median » ; ligne de temps verticale (<ol>) ;
+  // mini-barres par couloir. Tout est construit en DOM (textContent) : les noms de
+  // stations viennent du flux.
+  const etapesStation = new Map();   // station -> [n° d'etape, …] (deux en aller-retour possible)
   // Plein au depart / a l'arrivee : station -> libelle. Toujours visibles, meme avec
   // le filtre « arrets du plan » (demande Eric, 17/09/2026 : Orleans > Montpellier,
   // aucune station ni au depart ni a l'arrivee).
@@ -394,6 +415,7 @@ function rendu(){
   // Trajet sans arret necessaire : stations gardees a la place du plan (voir plus bas).
   const moinsCheres = new Set();
   let utilesPlan = null, horsPlan = 0;
+  const chipsPrix = [];              // [element, prix, indice carburant] a recolorer sur l'affichage reel
   const elPlan = $('plan');
   if(ROUTE && KMS){
     const conso = +$('conso').value;
@@ -402,56 +424,76 @@ function rendu(){
     // Reserve en KM (choix d'ergonomie) : plus parlant qu'un pourcentage.
     const resv = Math.max(0, +$('reserve').value || 30);
     const au = autonomieUtile(conso, cuve, autonomie, resv);
+    const total = KMS[KMS.length - 1];
     $('blocPlan').hidden = false;
+    // En-tete : « Paris → Lyon · 465 km · 4 h 46 » (« Paris ⇄ Lyon · 930 km » en aller-retour).
+    if(TRAJET){
+      $('planTrajet').textContent = `${TRAJET.dep} ${TRAJET.ar ? '⇄' : '→'} ${TRAJET.arr}`;
+      $('planMeta').textContent = `${Math.round(TRAJET.km)} km · ${duree(TRAJET.min)}`;
+    }
+    const el = (tag, cls, ...enfants) => {
+      const e = document.createElement(tag);
+      if(cls) e.className = cls;
+      for(const c of enfants){ if(c == null || c === false) continue; e.append(c.nodeType ? c : String(c)); }
+      return e;
+    };
+    const svg = nom => { const t = document.createElement('template'); t.innerHTML = ico(nom); return t.content.firstChild; };
+    const bouton = (cls, libelle, action, icone) => {
+      const b = el('button', cls, icone ? svg(icone) : null, icone ? ' ' : null, libelle);
+      b.type = 'button'; b.onclick = action; return b;
+    };
+    const euros = x => x.toFixed(2).replace('.', ',') + ' €';
+    const litre = x => x.toFixed(3).replace('.', ',') + ' €/L';
+    const virg = x => String(x).replace('.', ',');
+    const ouvrirGarage = champ => { appliquerVeh(); ouvrirFeuille('garage', $('chipVeh')); if(champ) $(champ).focus(); };
+    const heros = [];
+    let resume = '';
+
     if(!(conso > 0) || !au){
-      elPlan.innerHTML = '<span style="color:var(--muted)">Renseignez la conso et l\'autonomie d\'un plein (ou le réservoir) dans le garage pour savoir où faire le plein.</span>';
+      // Etat : conso ou autonomie manquante.
+      const manque = [!(conso > 0) && 'la conso', !au && 'l\'autonomie d\'un plein (ou le réservoir)'].filter(Boolean).join(' et ');
+      heros.push(el('div', 'heros-etat', el('b', null, 'Véhicule à compléter'), ` — renseignez ${manque} pour savoir où faire le plein et chiffrer le voyage.`,
+        el('div', 'actions',
+          bouton('btn primaire', 'Compléter le véhicule', () => ouvrirGarage(!(conso > 0) ? 'conso' : 'autonomie'), 'garage'),
+          bouton('btn', 'Assistant', () => ASSISTANT.ouvrir(REGL.vehicules[REGL.vehActif]), 'estimer'))));
+      resume = 'Plan de pleins : véhicule à compléter.';
     }else{
       const A = au.A;
-      const total = KMS[KMS.length - 1];
       const larg = +$('couloir').value;
       const lkm = conso / 100;
       const carbPlan = sel[0];               // le plan se calcule sur le 1er carburant coche
-      const candTous = DATA.filter(x => x.kmr != null)
-                       .map(x => ({s: x, v: pick(x, sel)})).filter(o => o.v)
-                       .map(o => ({s: o.s, v: o.v, km: o.s.kmr, e: o.s.ecart,
-                                   p: o.v.lignes[0].prix}))
-                       .sort((a,b) => a.km - b.km);
+      // Candidats le long de la boucle : une occurrence par position (aller, retour).
+      const candTous = [];
+      DATA.forEach(x => {
+        if(!x.occ || !x.occ.length) return;
+        const v = pick(x, sel);
+        if(!v) return;
+        x.occ.forEach(o => candTous.push({s: x, v, km: o.km, e: o.d, p: v.lignes[0].prix}));
+      });
+      candTous.sort((a,b) => a.km - b.km);
       const cand = candTous.filter(c => c.e <= larg);
       const r = optimiserPlan(cand, A, total, lkm);
       const plan = r.plan;
-      const coutTotal = r.coutAchats || 0;
       utilesPlan = r.utiles || null;
-
-      // Cout du voyage COMPLET : le plein de depart se paie aussi. Il est value
-      // au meilleur prix disponible a moins de 15 km du point de depart.
-      const coutVoyage = (candW, rw) => {
-        if(!rw || rw.plan === null) return null;
-        const pd = Math.min(...candW.filter(c => c.km <= 15).map(c => c.p));
-        if(!isFinite(pd)) return null;
-        const kmDep = rw.plan.length ? rw.plan[0].km + rw.plan[0].e : total;
-        return pd * lkm * Math.min(kmDep, total) + rw.coutAchats;
-      };
-      const voyage = coutVoyage(cand, r);
-
-      // Le cout depend de la largeur du couloir : plus large, plus de stations
-      // pas cheres candidates — mais des detours plus longs. Comparatif calcule
-      // sur les memes donnees (chargees a 20 km quoi qu'il arrive).
+      const voyage = coutVoyage(cand, r, total, lkm);
+      const eco = economieVsMedian(cand, A, total, lkm, voyage);
+      // Le cout depend de la largeur du couloir : plus large, plus de stations pas cheres
+      // candidates — mais des detours plus longs. Comparatif sur les memes donnees
+      // (chargees a 20 km quoi qu'il arrive).
       const comparatif = [1, 2, 5, 10, 20].map(w => {
         const cw = candTous.filter(c => c.e <= w);
-        const v = coutVoyage(cw, optimiserPlan(cw, A, total, lkm));
-        return `${w === larg ? '<b>' : ''}${w} km : ${v == null ? '—' : v.toFixed(2) + ' €'}${w === larg ? '</b> ◄' : ''}`;
-      }).join(' · ');
-
+        return {w, v: coutVoyage(cw, optimiserPlan(cw, A, total, lkm), total, lkm)};
+      });
       // Temps perdu : ~5 min par arret + le detour parcouru a ~50 km/h.
       const minutes = e => 5 + (2 * e.e) / 50 * 60;
       const tempsTotal = (plan || []).reduce((t, e) => t + minutes(e), 0);
-
-      // Ou faire le plein avant de partir, et ou le refaire en arrivant (15 km de chaque bout).
-      const {depart, arrivee} = pleinsExtremites(cand, total);
+      // Ou faire le plein avant de partir (15 km du depart) ; en aller simple, ou le refaire
+      // en arrivant. En aller-retour, le plein du retour est une ETAPE du plan.
+      const ext = pleinsExtremites(cand, total);
+      const depart = ext.depart, pleinArrivee = ROUTE_AR ? null : ext.arrivee;
       if(depart) extremites.set(depart.s, 'Départ');
-      if(arrivee) extremites.set(arrivee.s, extremites.has(arrivee.s) ? 'Départ et arrivée' : 'Arrivée');
-
-      (plan || []).forEach((e,i) => etapeNum.set(e.s, i + 1));
+      if(pleinArrivee) extremites.set(pleinArrivee.s, extremites.has(pleinArrivee.s) ? 'Départ et arrivée' : 'Arrivée');
+      (plan || []).forEach((e,i) => { const l = etapesStation.get(e.s) || []; l.push(i + 1); etapesStation.set(e.s, l); });
       // Trajet court, aucun arret necessaire : le filtre « arrets du plan » ne doit pas
       // vider la carte. On garde alors les moins cheres du couloir DANS LA ZONE AFFICHEE
       // (meme reference que le vert : sinon le texte citait des stations hors ecran) :
@@ -466,58 +508,172 @@ function rendu(){
       }
       // Reperes du plan sur la carte : cercle noir pointille = etape, plein = depart/arrivee.
       const rond = (s, titre, plein) => { if(!CARTE) return;
-        const el = document.createElement('div');
-        el.className = 'etape-rond' + (plein ? ' plein' : ''); el.title = titre;
-        MARQUEURS.push(CARTE.marqueur(s.la, s.lo, el));
+        const e = document.createElement('div');
+        e.className = 'etape-rond' + (plein ? ' plein' : ''); e.title = titre;
+        MARQUEURS.push(CARTE.marqueur(s.la, s.lo, e));
       };
       (plan || []).forEach((e,i) => rond(e.s, `Étape ${i+1} — km ${Math.round(e.km)}`, false));
-      [[depart, 'Plein au départ'], [arrivee, 'Plein à l\'arrivée']].forEach(([o, t]) => {
+      [[depart, 'Plein au départ'], [pleinArrivee, 'Plein à l\'arrivée']].forEach(([o, t]) => {
         if(o) rond(o.s, `${t} — km ${Math.round(o.km)}`, true);
       });
-      const nomStation = o => `<b>${o.s.ville}</b> ${o.v.lignes.map(l => `${l.tag} ${l.prix.toFixed(3)}`).join(' + ')} €`+
-                              ` (km ${Math.round(o.km)}, détour ${(2*o.e).toFixed(1)} km)`;
-      const ligneDepart = `<span class="badge">${ico('pompe')} Départ</span> Plein au départ : ` +
-        (depart ? nomStation(depart) : 'aucune station à moins de 15 km du départ dans ce couloir');
-      const ligneArrivee = `<span class="badge">${ico('pompe')} Arrivée</span> Plein à l'arrivée : ` +
-        (arrivee ? nomStation(arrivee) : 'aucune station à moins de 15 km de l\'arrivée dans ce couloir');
+
+      // Prix d'une candidate, en palette metier. Reference provisoire = les candidates du
+      // couloir ; recolore plus bas sur les stations REELLEMENT affichees (meme vert que la
+      // carte et la liste), une fois le filtre « arrets du plan » applique.
+      const mnCand = sel.map((k, j) => Math.min(...cand.map(c => c.v.lignes[j].prix)));
+      const chipPrix = c => c.v.lignes.map((l, j) => {
+        const sp = el('span', 'prix', `${l.tag} ${litre(l.prix)}`);
+        sp.style.background = couleur(l.prix, refs[j], mnCand[j]);
+        chipsPrix.push([sp, l.prix, j]);
+        return sp;
+      });
       const origine = au.source === 'autonomie' ? `plein ≈ ${Math.round(au.plein)} km`
-                    : `${cuve} L × ${String(conso).replace('.', ',')} L/100`;
-      const tete = `${ligneDepart} · autonomie utile ~${Math.round(A)} km (${origine}, réserve ${resv} km)`;
+                    : `${cuve} L × ${virg(conso)} L/100`;
+      const rappel = el('p', 'heros-rappel',
+        `≈ ${Math.round(A)} km utiles (${origine}, réserve ${resv} km) · plan sur ${carbPlan === 'spmin' ? 'SP le moins cher' : (COURT[carbPlan] || 'SP')}` +
+        (voyage != null ? ' · plein de départ compris' : ''));
+      // Ligne de temps : <ol>, un repere par item (lecteur d'ecran : liste ordonnee).
+      const item = (cls, pt, titre, lignes, station) => {
+        const li = el('li', cls);
+        const p = el('span', 'lt-pt' + (pt.plein ? ' plein' : '') + (pt.pause ? ' pause' : ''), pt.txt || '');
+        p.setAttribute('aria-hidden', 'true');
+        const txt = el('div', 'lt-txt', el('b', null, titre));
+        (lignes || []).filter(Boolean).forEach(l => txt.append(el('span', 'lt-ligne', ...(Array.isArray(l) ? l : [l]))));
+        li.append(p, txt);
+        if(station){
+          const b = bouton('lt-aller', 'Y aller', () => allerA(station, b), 'navigation');
+          b.setAttribute('aria-label', `Y aller : ${brut(station.ville)}`);
+          li.append(b);
+        }
+        return li;
+      };
+      const nomVille = s => brut(s.ville);
+      // Autonomie restante estimee a un km donne : plein au dernier plein (depart compris).
+      const restante = km => {
+        const avant = (plan || []).filter(e => e.km <= km);
+        const dernier = avant.length ? avant[avant.length - 1] : null;
+        return Math.round(au.plein - (km - (dernier ? dernier.km : 0)) - (dernier ? dernier.e : 0));
+      };
+      const ligneTemps = () => {
+        const ol = el('ol', 'ligne-temps');
+        ol.setAttribute('aria-label', 'Étapes du plan');
+        ol.append(item('lt-depart', {plein: true, txt: ''}, 'Départ · plein',
+          depart ? [[nomVille(depart.s), ' · km ', String(Math.round(depart.km)), ' · ', ...chipPrix(depart)]]
+                 : ['aucune station à moins de 15 km du départ dans ce couloir — partez le réservoir plein'],
+          depart ? depart.s : null));
+        const etapes = plan || [];
+        const ajouterEtapes = (de, a) => etapes.forEach((e, i) => {
+          if(e.km < de || e.km >= a) return;
+          ol.append(item('lt-etape', {txt: String(i + 1)}, `Étape ${i + 1} — ${nomVille(e.s)}`,
+            [[`km ${Math.round(e.km)} · `, ...chipPrix(e)],
+             `détour ${(2 * e.e).toFixed(1).replace('.', ',')} km (+${euros(2 * e.e * lkm * e.p)}) · ≈ ${Math.round(minutes(e))} min`],
+            e.s));
+        });
+        if(ROUTE_AR){
+          ajouterEtapes(0, ALLER_KM);
+          ol.append(item('lt-arrivee', {pause: true, txt: ''}, `Arrivée — ${TRAJET ? TRAJET.arr : 'arrivée'}`,
+            [`km ${Math.round(ALLER_KM)} · autonomie restante ≈ ${restante(ALLER_KM)} km`]));
+          ajouterEtapes(ALLER_KM, Infinity);
+          ol.append(item('lt-retour', {plein: true, txt: ''}, `Retour — ${TRAJET ? TRAJET.dep : 'départ'}`,
+            [`km ${Math.round(total)} · autonomie restante ≈ ${restante(total)} km`]));
+        }else{
+          ajouterEtapes(0, Infinity);
+          ol.append(item('lt-arrivee', {plein: true, txt: ''}, `Arrivée — ${TRAJET ? TRAJET.arr : 'arrivée'}`,
+            [`km ${Math.round(total)} · autonomie restante ≈ ${restante(total)} km`]));
+          ol.append(item('lt-retour', {pause: true, txt: ''}, 'Retour — plein conseillé à l\'arrivée',
+            pleinArrivee ? [[nomVille(pleinArrivee.s), ' · km ', String(Math.round(pleinArrivee.km)), ' · ', ...chipPrix(pleinArrivee)]]
+                         : ['aucune station à moins de 15 km de l\'arrivée dans ce couloir'],
+            pleinArrivee ? pleinArrivee.s : null));
+        }
+        return ol;
+      };
+      // Mini-barres : carburant du voyage selon le couloir (hauteur ∝ cout) ; toucher une
+      // barre change le couloir — le select#couloir reste la source de verite.
+      const barres = () => {
+        const bloc = el('div', 'couloirs', el('p', 'couloirs-titre', 'Carburant du voyage selon le couloir'));
+        const grille = el('div', 'couloirs-barres');
+        grille.setAttribute('role', 'group'); grille.setAttribute('aria-label', 'Largeur du couloir');
+        const vals = comparatif.map(c => c.v).filter(v => v != null);
+        const vmax = vals.length ? Math.max(...vals) : 0;
+        comparatif.forEach(({w, v}) => {
+          const b = el('button', 'couloir-b');
+          b.type = 'button'; b.dataset.w = String(w);
+          b.setAttribute('aria-pressed', String(w === larg));
+          b.setAttribute('aria-label', `Couloir ${w} km, ${v == null ? 'infaisable' : euros(v)}`);
+          const barre = el('span', 'cb-barre' + (v == null ? ' ko' : ''));
+          if(v != null) barre.style.height = `${Math.max(6, Math.round(40 * v / vmax))}px`;
+          b.append(barre, el('span', 'cb-val', v == null ? '—' : euros(v)), el('span', 'cb-km', `${w} km`));
+          b.onclick = () => {
+            if($('couloir').value === String(w)) return;
+            $('couloir').value = String(w);
+            $('couloir').dispatchEvent(new Event('change'));
+          };
+          grille.append(b);
+        });
+        bloc.append(grille);
+        return bloc;
+      };
+      const chiffre = () => {
+        if(voyage != null) return el('p', 'heros-chiffre', el('b', null, euros(voyage)), el('span', null, 'carburant du voyage'));
+        return el('p', 'heros-chiffre', el('b', null, euros(r.coutAchats || 0)), el('span', null, 'achats en route (plein de départ non chiffré : aucune station à moins de 15 km)'));
+      };
+      const ligneEco = () => {
+        if(!eco) return null;
+        if(Math.abs(eco.economie) < 0.05) return el('b', 'eco nulle', `au prix du marché (${litre(eco.median)})`);
+        const signe = eco.economie > 0 ? '−' : '+';
+        return el('b', 'eco' + (eco.economie > 0 ? '' : ' nulle'), `${signe}${euros(Math.abs(eco.economie))} vs pleins au prix médian (${litre(eco.median)})`);
+      };
+
       if(plan === null){
-        elPlan.innerHTML = `${tete} · <b style="color:var(--rouge)">${ico('alerte')} trajet infaisable avec cette`+
-          ` autonomie dans ce couloir</b> — élargissez le couloir, réduisez la réserve ou vérifiez conso et réservoir`;
+        // Etat : infaisable — trois remedes cliquables.
+        const actions = el('div', 'actions');
+        if(larg < 10) actions.append(bouton('btn', 'Élargir le couloir à 10 km', () => { $('couloir').value = '10'; $('couloir').dispatchEvent(new Event('change')); }));
+        if(larg < 20) actions.append(bouton('btn', larg < 10 ? 'Élargir à 20 km' : 'Élargir le couloir à 20 km', () => { $('couloir').value = '20'; $('couloir').dispatchEvent(new Event('change')); }));
+        if(resv > 0){
+          const cible = resv > 10 ? 10 : 0;
+          actions.append(bouton('btn', `Réduire la réserve (${resv} → ${cible} km)`, () => { $('reserve').value = String(cible); $('reserve').dispatchEvent(new Event('change')); }));
+        }
+        actions.append(bouton('btn', 'Revoir l\'autonomie', () => ouvrirGarage('autonomie'), 'garage'));
+        heros.push(el('div', 'heros-etat ko', svg('alerte'), ' ', el('b', null, 'Trajet infaisable avec cette autonomie dans ce couloir'),
+          ` — ${Math.round(A)} km utiles pour ${Math.round(total)} km, couloir ${larg} km : aucune suite d'arrêts ne passe.`, actions));
+        heros.push(rappel, barres());
+        resume = `Plan de pleins : trajet infaisable avec ${Math.round(A)} km d'autonomie utile dans un couloir de ${larg} km.`;
       }else if(!plan.length){
-        const lst = [...list].filter(o => moinsCheres.has(o.s))
-                             .sort((a,b) => a.v.p - b.v.p || a.s.ecart - b.s.ecart);
-        elPlan.innerHTML = `${tete} · trajet de ${Math.round(total)} km : <b>aucun arrêt nécessaire</b>`+
-          (voyage != null ? ` · carburant du voyage ≈ <b>${voyage.toFixed(2)} €</b> (plein au départ)` : '') +
-          (lst.length ? `<br>Pour un plein en route, les moins chères du couloir dans la zone affichée : ` +
-            lst.map(o => `<b>${o.s.ville}</b> ${o.v.lignes.map(l => `${l.tag} ${l.prix.toFixed(3)}`).join(' + ')} €`+
-                         ` (km ${Math.round(o.s.kmr)}, détour ${(2*o.s.ecart).toFixed(1)} km)`).join(' · ') : '') +
-          `<br>${ligneArrivee}`;
+        // Etat : aucun arret necessaire.
+        heros.push(el('div', 'heros-etat ok', el('b', null, 'Aucun arrêt nécessaire'),
+          ` — ${Math.round(total)} km pour ${Math.round(A)} km utiles : un plein au départ suffit.`));
+        heros.push(chiffre());
+        heros.push(el('p', 'heros-sous', '0 arrêt · ', ligneEco()));
+        heros.push(rappel, ligneTemps());
+        const lst = [...list].filter(o => moinsCheres.has(o.s)).sort((a,b) => a.v.p - b.v.p || a.s.ecart - b.s.ecart);
+        if(lst.length){
+          const ul = el('ul', 'liste-min');
+          lst.forEach(o => ul.append(el('li', null, el('b', null, nomVille(o.s)), ` km ${Math.round(o.s.kmr)}, détour ${(2 * o.s.ecart).toFixed(1).replace('.', ',')} km · `, ...chipPrix(o))));
+          heros.push(el('p', 'heros-rappel', 'Pour un plein en route, les moins chères du couloir dans la zone affichée :'), ul);
+        }
+        heros.push(barres());
+        resume = `Plan de pleins : aucun arrêt nécessaire${voyage != null ? `, carburant du voyage ${euros(voyage)}` : ''}.`;
       }else{
-        elPlan.innerHTML = tete +
-          ` · plan optimal sur ${COURT[carbPlan] || 'SP'}, détours comptés — achats en route ≈ <b>${coutTotal.toFixed(2)} €</b>` +
-          (voyage != null ? ` · carburant du voyage ≈ <b>${voyage.toFixed(2)} €</b> (plein de départ compris)` : '') +
-          ` · temps d'arrêts ≈ <b>${Math.round(tempsTotal)} min</b>` +
-          `<br>` +
-          plan.map((e,i) =>
-            `<span class="badge">${ico('pompe')} ${i+1}</span> ${e.s.ville} km ${Math.round(e.km)}`+
-            ` (détour ${(2*e.e).toFixed(1)} km ≈ ${(2*e.e*lkm*e.p).toFixed(2)} €, ~${Math.round(minutes(e))} min)`+
-            ` — ${e.v.lignes.map(l => `${l.tag} ${l.prix.toFixed(3)}`).join(' + ')} €`).join(' · ') +
-          `<br>${ligneArrivee}` +
-          `<br><span style="color:var(--muted)">Voyage selon le couloir — ${comparatif}</span>`;
+        heros.push(chiffre());
+        heros.push(el('p', 'heros-sous', `${plan.length} arrêt${plan.length > 1 ? 's' : ''} · ≈ ${Math.round(tempsTotal)} min · `, ligneEco()));
+        heros.push(rappel, ligneTemps(), barres());
+        resume = `Plan de pleins : ${plan.length} arrêt${plan.length > 1 ? 's' : ''}${voyage != null ? `, carburant du voyage ${euros(voyage)}` : ''}` +
+                 (eco && Math.abs(eco.economie) >= 0.05 ? `, ${eco.economie > 0 ? 'économie' : 'surcoût'} de ${euros(Math.abs(eco.economie))} par rapport au prix médian` : '') + '.';
       }
     }
+    elPlan.replaceChildren(...heros);
+    // Region aria-live : un resume court, mis a jour seulement s'il change (le plan est
+    // redessine a chaque deplacement de la carte : pas de repetition au lecteur d'ecran).
+    if($('planEtat').textContent !== resume) $('planEtat').textContent = resume;
     // Une station du plan (etape, depart, arrivee) reste visible meme « trop chere » :
     // le plan y passe. La masquer faisait croire a un plan vide (constate le 17/09/2026 :
     // Le Caylar, etape 1 d'Orleans > Montpellier, absente de la liste et de la carte).
     const dansTri = new Set(tri.map(o => o.s));
-    const reprises = list.filter(o => (etapeNum.has(o.s) || extremites.has(o.s)) && !dansTri.has(o.s));
+    const reprises = list.filter(o => (etapesStation.has(o.s) || extremites.has(o.s)) && !dansTri.has(o.s));
     if(reprises.length){ tri.push(...reprises); tri.sort(ordre); }
     if(utilesPlan && $('queUtiles').checked){
       const avant = tri.length;
-      tri = tri.filter(({s}) => etapeNum.has(s) || moinsCheres.has(s) || extremites.has(s));
+      tri = tri.filter(({s}) => etapesStation.has(s) || moinsCheres.has(s) || extremites.has(s));
       const off = avant - tri.length;
       horsPlan = off;
       if(off) majCompte(` · ${off} hors plan masquée${off>1?'s':''}`);
@@ -536,6 +692,7 @@ function rendu(){
   // ex aequo compris, toutes les moins cheres affichees sont vertes (17/09/2026).
   const minisAff = sel.map((k,i) => Math.min(...tri.map(o => o.v.lignes[i].prix)));
   const miniTotAff = Math.min(...tri.map(o => o.v.p));
+  chipsPrix.forEach(([sp, prix, j]) => { sp.style.background = couleur(prix, refs[j], minisAff[j]); });
   $('echelle').textContent =
     `— vert = la moins chère affichée, ex æquo compris ; ${sansCherLbl()} · ` +
     sel.map((k,i) => `${k==='spmin'?'SP':COURT[k]} ${minisAff[i].toFixed(3)}` +
@@ -547,9 +704,9 @@ function rendu(){
       `<span class="pill" style="background:${couleur(l.prix, refs[j], minisAff[j])}">${l.tag} ${l.prix.toFixed(3)}</span>`).join('');
     const prix = (multi
       ? `<span class="pill" style="background:${couleur(v.p, refTotal, miniTotAff)}">${v.p.toFixed(3)} €</span>` : '') + chips;
-    const et = etapeNum.get(s), mc = moinsCheres.has(s), ex = extremites.get(s);
+    const et = etapesStation.get(s), mc = moinsCheres.has(s), ex = extremites.get(s);
     const badges = (ex ? `<span class="badge">${ico('pompe')} ${ex}</span> ` : '') +
-      (et ? `<span class="badge">${ico('pompe')} Étape ${et}</span> ` : mc ? `<span class="badge badge-min">Moins chère</span> ` : '');
+      (et ? `<span class="badge">${ico('pompe')} Étape${et.length > 1 ? 's' : ''} ${et.join(' · ')}</span> ` : mc ? `<span class="badge badge-min">Moins chère</span> ` : '');
     const li = document.createElement('li');
     li.innerHTML = `<button type="button" class="carte${et || mc || ex ? ' etape' : ''}" aria-haspopup="dialog">`+
       `<span class="ville">${badges}${s.ville} <span class="cp">${s.cp}</span></span>`+
@@ -656,11 +813,13 @@ function naviguer(cle, s){
   if(/^https?:/.test(url)) window.open(url, '_blank', 'noopener');
   else location.href = url;   // schema d'application (geo:, magicearth:, osmand.api:)
 }
-$('fsAller').onclick = () => {
-  if(!STATION) return;
-  if(NAV_APPS.some(a => a[0] === REGL.navApp)) naviguer(REGL.navApp, STATION);
-  else ouvrirFeuille('menuNav', $('fsAller'));   // premier usage : on demande, puis on memorise
-};
+// « Y aller » depuis la fiche station ou la ligne de temps du plan : meme feuille de choix.
+function allerA(s, origine){
+  STATION = s;
+  if(NAV_APPS.some(a => a[0] === REGL.navApp)) naviguer(REGL.navApp, s);
+  else ouvrirFeuille('menuNav', origine || $('fsAller'));   // premier usage : on demande, puis on memorise
+}
+$('fsAller').onclick = () => { if(STATION) allerA(STATION, $('fsAller')); };
 $('navChoix').innerHTML = NAV_APPS.map(([k, nom, note]) =>
   `<button type="button" class="choix-item" data-app="${k}">${ico(k === 'osm' || k === 'gmaps' || k === 'apple' ? 'carte' : 'navigation')} ${nom}`+
   `<small>${note || (k === NAV_DEFAUT ? 'conseillé sur cet appareil' : '')}</small></button>`).join('');
@@ -699,40 +858,132 @@ $('vehOk').onclick = () => {
   }
   majSelectVeh(); majChip(); fermerFeuille(); charger();
 };
+// Suppression avec annulation (a la place de confirm()) : la fiche part tout de suite,
+// « Supprimé · Annuler » reste 8 s, Annuler la remet a sa place.
+let SUPPRIME = null, minuteurSuppr = null;
+function messageGarage(texte, action, libelle){
+  const m = $('garageMsg');
+  m.replaceChildren(texte);
+  if(action){
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn'; b.innerHTML = ico('annuler') + ' ' + libelle; b.onclick = action;
+    m.append(b);
+  }
+  clearTimeout(minuteurSuppr);
+  minuteurSuppr = setTimeout(() => { SUPPRIME = null; m.replaceChildren(); }, 8000);
+}
 $('vehMoins').onclick = () => {
   if(REGL.vehicules.length <= 1) return;
-  if(!confirm(`Supprimer « ${REGL.vehicules[REGL.vehActif].nom} » ?`)) return;
-  REGL.vehicules.splice(REGL.vehActif, 1);
+  const i = REGL.vehActif;
+  const [v] = REGL.vehicules.splice(i, 1);
+  SUPPRIME = {v, i};
   REGL.vehActif = 0;
   reglagesBruts();                        // suppression : ecriture directe
-  majSelectVeh(); appliquerVeh(); fermerFeuille(); charger();
+  majSelectVeh(); appliquerVeh(); charger();
+  messageGarage(`« ${v.nom} » supprimé · `, () => {
+    if(!SUPPRIME) return;
+    REGL.vehicules.splice(Math.min(SUPPRIME.i, REGL.vehicules.length), 0, SUPPRIME.v);
+    REGL.vehActif = Math.min(SUPPRIME.i, REGL.vehicules.length - 1);
+    SUPPRIME = null;
+    reglagesBruts(); majSelectVeh(); appliquerVeh(); charger();
+    $('garageMsg').replaceChildren();
+  }, 'Annuler');
 };
-$('vtype').onchange = () => { reglagesEcrits(); };
-
-// Import d'une fiche vehicule par l'URL — sert aussi a PARTAGER un profil :
-//   fuelpilot.html#veh=Nom|e85+e10|conso|cuve|reserve[|autonomie]
-// (autonomie d'un plein en km, 6e champ facultatif : les anciens liens restent valables)
-(function(){
-  // #pos=lat,lon : pose le repere sans geolocalisation — indispensable en
-  // file:// (Firefox reserve la geolocalisation aux contextes securises).
-  const mp = location.hash.match(/^#pos=(-?[0-9.]+),(-?[0-9.]+)$/);
-  if(mp){
-    setTimeout(() => situer(+mp[1], +mp[2], 'Point de repère'), 0);
-    history.replaceState(null, '', location.pathname);
+$('vtype').onchange = () => { majCats(); reglagesEcrits(); };
+$('vcat').onchange = () => { reglagesEcrits(); };
+// Estimer la conso d'apres le type, la categorie et le premier carburant coche (src/conso.js).
+$('vehEstimer').onclick = () => {
+  const carb = choix()[0];
+  const r = carb ? estimerConso($('vtype').value, $('vcat').value, carb) : null;
+  const src = $('consoSource');
+  src.hidden = false;
+  if(!r){
+    src.textContent = carb ? 'Pas d\'estimation pour cette combinaison — saisissez la conso que vous connaissez (les hybrides n\'ont pas d\'estimation).'
+                           : 'Cochez d\'abord un carburant.';
     return;
   }
-  const m = location.hash.match(/^#veh=([^|]+)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)(?:\|([^|]*))?$/);
-  if(!m) return;
-  const nom = decodeURIComponent(m[1]);
-  const v = {nom, type: 'voiture',
-    carbs: m[2] ? decodeURIComponent(m[2]).split('+') : DEFAUT.slice(),
-    conso: decodeURIComponent(m[3]), cuve: decodeURIComponent(m[4]),
-    reserve: decodeURIComponent(m[5]), autonomie: m[6] ? decodeURIComponent(m[6]) : ''};
-  const i = REGL.vehicules.findIndex(x => x.nom === nom);
-  if(i >= 0) REGL.vehicules[i] = Object.assign({type: REGL.vehicules[i].type}, v); else REGL.vehicules.push(v);
-  REGL.vehActif = i >= 0 ? i : REGL.vehicules.length - 1;
-  appliquerVeh(); majSelectVeh(); reglagesEcrits();
-  history.replaceState(null, '', location.pathname);
+  $('conso').value = r.conso;
+  src.textContent = `≈ ${String(r.conso).replace('.', ',')} L/100 — ${r.source}. Modifiable.`;
+  majEstimations(); reglagesEcrits(); rendu();
+};
+// Partage : lien d'import de la fiche (#veh=…) ou du plan (#trajet=…&veh=…). Partage natif
+// (navigator.share) quand il existe, sinon copie dans le presse-papiers et « Lien copié ».
+const lienBase = () => location.href.split('#')[0];
+const vehParam = v => [encodeURIComponent(v.nom), (v.carbs || []).join('+'), encodeURIComponent(v.conso || ''),
+  encodeURIComponent(v.cuve || ''), encodeURIComponent(v.reserve || ''), encodeURIComponent(v.autonomie || '')].join('|');
+async function partagerLien(url, texte, elMsg){
+  if(navigator.share){
+    try{ await navigator.share({title: 'ViaMinus', text: texte, url}); return; }
+    catch(e){ if(e && e.name === 'AbortError') return; }
+  }
+  try{
+    await navigator.clipboard.writeText(url);
+    majEtat('lien copié');
+    if(elMsg){ elMsg.textContent = 'Lien copié'; setTimeout(() => { if(elMsg.textContent === 'Lien copié') elMsg.textContent = ''; }, 4000); }
+  }catch(e){ prompt('Copiez le lien :', url); }
+}
+$('vehPartager').onclick = () => {
+  reglagesEcrits();
+  const v = REGL.vehicules[REGL.vehActif];
+  partagerLien(`${lienBase()}#veh=${vehParam(v)}`, `Fiche véhicule ${v.nom} — ViaMinus`, $('garageMsg'));
+};
+$('partagerPlan').onclick = () => {
+  if(!ROUTE || !TRAJET) return;
+  partagerLien(lienTrajet(), `Plan de pleins ${TRAJET.dep} ${TRAJET.ar ? '⇄' : '→'} ${TRAJET.arr} — ViaMinus`);
+};
+
+// Import par l'URL — sert aussi a PARTAGER :
+//   #veh=Nom|e85+e10|conso|cuve|reserve[|autonomie]   fiche vehicule (format inchange)
+//   #trajet=<depart>|<arrivee>|<couloir>|<options>    plan (depart vide = « Ma position »,
+//       JAMAIS une coordonnee ; couloir 1/2/5/10/20 ; options = lettres p (sans peage),
+//       r (aller-retour)) ; peut etre suivi de &veh=… : la fiche est traitee AVANT le trajet,
+//       pour que le plan se calcule sur ce vehicule.
+//   #pos=lat,lon                                        repere sans geolocalisation
+// Les valeurs sont decodees puis traitees en TEXTE (.value, textContent), jamais en HTML ;
+// le hash est efface (history.replaceState) une fois lu.
+let IMPORT_HASH = false, TRAJET_IMPORT = null;
+(function(){
+  const h = location.hash.slice(1);
+  if(!h) return;
+  const parts = {};
+  h.split('&').forEach(x => { const i = x.indexOf('='); if(i > 0) parts[x.slice(0, i)] = x.slice(i + 1); });
+  const dec = x => { try{ return decodeURIComponent(x); }catch(e){ return x; } };
+  let lu = false;
+  if(parts.pos){
+    // #pos=lat,lon : pose le repere sans geolocalisation — indispensable en
+    // file:// (Firefox reserve la geolocalisation aux contextes securises).
+    const mp = parts.pos.match(/^(-?[0-9.]+),(-?[0-9.]+)$/);
+    if(mp){ setTimeout(() => situer(+mp[1], +mp[2], 'Point de repère'), 0); lu = true; }
+  }
+  const m = parts.veh && parts.veh.match(/^([^|]+)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)(?:\|([^|]*))?$/);
+  if(m){
+    const nom = dec(m[1]);
+    const v = {nom, type: 'voiture',
+      carbs: m[2] ? dec(m[2]).split('+') : DEFAUT.slice(),
+      conso: dec(m[3]), cuve: dec(m[4]),
+      reserve: dec(m[5]), autonomie: m[6] ? dec(m[6]) : ''};
+    const i = REGL.vehicules.findIndex(x => x.nom === nom);
+    if(i >= 0) REGL.vehicules[i] = Object.assign({type: REGL.vehicules[i].type, cat: REGL.vehicules[i].cat}, v); else REGL.vehicules.push(v);
+    REGL.vehActif = i >= 0 ? i : REGL.vehicules.length - 1;
+    appliquerVeh(); majSelectVeh(); reglagesEcrits();
+    IMPORT_HASH = true; lu = true;
+  }
+  if(parts.trajet){
+    const f = parts.trajet.split('|');
+    const arr = dec(f[1] || '').trim(), dep = dec(f[0] || '').trim();
+    if(arr){
+      $('depart').value = dep;                 // vide = « Ma position » (le repere courant)
+      $('arrivee').value = arr;
+      if(['1', '2', '5', '10', '20'].includes(f[2])){ $('couloir').value = f[2]; REGL.couloir = f[2]; }
+      const o = f[3] || '';
+      $('sansPeage').checked = o.includes('p');
+      $('allerRetour').checked = o.includes('r');
+      // Depart « Ma position » : on attend la reponse de la geolocalisation avant de calculer.
+      TRAJET_IMPORT = {attendPosition: !dep || /^ma position$/i.test(dep)};
+    }
+    IMPORT_HASH = true; lu = true;
+  }
+  if(lu) history.replaceState(null, '', location.pathname);
 })();
 $('sansCher').onchange = () => { reglagesEcrits(); rendu(); };
 
@@ -824,11 +1075,7 @@ async function charger(){
     rows = rows.filter(r => !vus.has(r.id) && vus.add(r.id));   // emprises jointives
     tronque = reste;
     DATA = normalise(rows);
-    if(ROUTE){
-      DATA = DATA.map(s => { const r = distTrace(s.la, s.lo);
-                             return Object.assign(s, {ecart: r.d, kmr: r.km}); })
-                 .filter(s => s.ecart <= 20);
-    }
+    if(ROUTE) DATA = DATA.filter(situerSurTrace);
     etatPrix = 'prix en direct · ' + new Date().toLocaleString('fr-FR',
       {weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
   }catch(e){
@@ -856,7 +1103,7 @@ $('conso').onchange = $('cuve').onchange = $('autonomie').onchange =
 $('reserve').onchange = () => { reglagesEcrits(); rendu(); };
 ['conso', 'cuve', 'autonomie'].forEach(id => $(id).addEventListener('input', majEstimations));
 $('queUtiles').onchange = () => { reglagesEcrits(); rendu(); };
-$('sansPeage').onchange = () => {
+$('sansPeage').onchange = $('allerRetour').onchange = () => {
   reglagesEcrits();
   if(ROUTE) $('trajet').requestSubmit();
 };
@@ -872,8 +1119,10 @@ function situer(lat, lon, libelle, explicite){
   REGL.centre = [lat, lon]; reglagesEcrits();
   $('posMemo').hidden = false;
   if(repere){ repere.setLngLat([lon, lat]); elRepere.title = libelle + " — les distances partent d'ici"; }
-  if(CARTE) CARTE.aller(CENTRE, 13, explicite);   // ~5 km autour du point ; moveend -> rechargement
-  else charger();
+  // ~5 km autour du point ; moveend -> rechargement. Un trajet affiche n'est pas quitte
+  // par une geolocalisation automatique (trajet importe par l'URL, par exemple).
+  if(CARTE && (explicite || !ROUTE)) CARTE.aller(CENTRE, 13, explicite);
+  else if(!CARTE) charger();
   chargerReferentiel().then(rendu).catch(() => {});   // le secteur suit le nouveau centre
   // Le titre suit la position (nom de commune via la Base Adresse Nationale) :
   // la page peut etre partagee, la commune du snapshot ne doit pas rester figee.
@@ -887,22 +1136,27 @@ function situer(lat, lon, libelle, explicite){
       }
     }).catch(() => {});
 }
-function localiser(auto){
+// localiser(auto, apres) : apres(ok) est appele a l'issue (succes ou refus) — l'assistant
+// et le trajet importe « depuis ma position » s'en servent.
+function localiser(auto, apres){
   if(!navigator.geolocation){
     if(!auto) majEtat('géolocalisation non disponible');
+    if(apres) apres(false);
     return;
   }
   majEtat('localisation…');
   $('maposition').classList.add('actif');
   navigator.geolocation.getCurrentPosition(
     pos => { $('maposition').classList.remove('actif');
-             situer(pos.coords.latitude, pos.coords.longitude, 'Ma position', !auto); },
+             situer(pos.coords.latitude, pos.coords.longitude, 'Ma position', !auto);
+             if(apres) apres(true); },
     ()  => { $('maposition').classList.remove('actif');
              majEtat(Array.isArray(REGL.centre)
                ? 'position refusée — repère mémorisé utilisé'
                : 'position refusée — appui long sur la carte pour poser le repère');
              // Refus au chargement : le premier chargement est deja en cours, rien a relancer.
-             if(!auto) ouvrirFeuille('menuPosition', $('maposition')); },
+             if(!auto && !apres) ouvrirFeuille('menuPosition', $('maposition'));
+             if(apres) apres(false); },
     {enableHighAccuracy: false, timeout: 8000, maximumAge: 300000});
 }
 $('maposition').onclick = () => localiser(false);
@@ -924,15 +1178,20 @@ $('posAdresse').onsubmit = async e => {
 };
 $('optPosition').onclick = () => ouvrirFeuille('menuPosition', $('options'));
 // Reticule : viser le repere au centre de la carte.
-function reticule(on){
+// reticule(on, apres) : apres() est appele une fois le repere pose (retour a l'assistant).
+let APRES_RETICULE = null;
+function reticule(on, apres){
   $('reticule').hidden = !on;
+  APRES_RETICULE = on ? (apres || null) : null;
   if(on) poserCran('apercu');
 }
 $('posCarte').onclick = () => { fermerFeuille(); if(CARTE) reticule(true); };
 $('reticuleOk').onclick = () => {
   const c = map.getCenter();
+  const apres = APRES_RETICULE;
   reticule(false);
   situer(c.lat, c.lng, 'Point de repère', true);
+  if(apres) apres();
 };
 $('reticuleNon').onclick = () => reticule(false);
 // Appui long (tactile) ou clic droit (bureau) sur la carte = poser le repere.
@@ -973,7 +1232,12 @@ if(map){
 // Les deux sont publics, sans cle, et autorisent l'appel depuis un fichier local.
 const BAN = 'https://api-adresse.data.gouv.fr/search/';
 const ITI = 'https://data.geopf.fr/navigation/itineraire';
-let ROUTE = null;        // [[lon,lat], …] simplifie
+let ROUTE = null;        // [[lon,lat], …] simplifie ; en aller-retour : aller puis retour (boucle)
+let I_RETOUR = null;     // indice du premier point du retour dans ROUTE (null : aller simple)
+let ALLER_KM = null;     // km de l'arrivee sur la boucle (null : aller simple)
+let ROUTE_AR = false;    // le trajet affiche est un aller-retour
+let TRAJET = null;       // {dep, arr, km, min, ar, sansP} du trajet affiche (en-tete du plan)
+let TRAJET_SANS_GESTE = false;   // calcul lance sans geste (import #trajet=) : pas d'animation
 const infoT = $('infoTrajet');
 // Un depart vide ou « Ma position » vaut le repere courant.
 const maPosition = q => !q.trim() || /^ma position$/i.test(q.trim());
@@ -1001,20 +1265,37 @@ function preparerKms(){
   }
 }
 
-// Renvoie l'ecart au trace ET la position le long du trajet (km depuis le depart).
-function distTrace(la, lo){
+// Positions d'une station le long du trace : ecart (km) et abscisse (km depuis le depart),
+// pour chaque sens. En aller-retour, une station proche des deux sens apparait DEUX fois
+// (km aller, km retour) : le plan la traite comme deux occurrences, numerotees a part.
+// Seules les positions a moins de 20 km (couloir maximal) sont gardees.
+function positionsTrace(la, lo){
   const kx = 111.32*Math.cos(la*Math.PI/180), ky = 110.57;
-  let best = Infinity, km = 0;
-  for(let i=1; i<ROUTE.length; i++){
-    const ax=(ROUTE[i-1][0]-lo)*kx, ay=(ROUTE[i-1][1]-la)*ky;
-    const bx=(ROUTE[i][0]-lo)*kx,   by=(ROUTE[i][1]-la)*ky;
-    const dx=bx-ax, dy=by-ay, l2=dx*dx+dy*dy;
-    let t = l2 ? -(ax*dx+ay*dy)/l2 : 0;
-    t = Math.max(0, Math.min(1, t));
-    const px=ax+t*dx, py=ay+t*dy, d=Math.hypot(px,py);
-    if(d<best){ best=d; km = KMS ? KMS[i-1] + t*(KMS[i]-KMS[i-1]) : 0; }
+  const sens = I_RETOUR != null ? [[1, I_RETOUR], [I_RETOUR + 1, ROUTE.length]] : [[1, ROUTE.length]];
+  const res = [];
+  for(const [de, a] of sens){
+    let best = Infinity, km = 0;
+    for(let i = de; i < a; i++){
+      const ax=(ROUTE[i-1][0]-lo)*kx, ay=(ROUTE[i-1][1]-la)*ky;
+      const bx=(ROUTE[i][0]-lo)*kx,   by=(ROUTE[i][1]-la)*ky;
+      const dx=bx-ax, dy=by-ay, l2=dx*dx+dy*dy;
+      let t = l2 ? -(ax*dx+ay*dy)/l2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      const px=ax+t*dx, py=ay+t*dy, d=Math.hypot(px,py);
+      if(d<best){ best=d; km = KMS ? KMS[i-1] + t*(KMS[i]-KMS[i-1]) : 0; }
+    }
+    if(best <= 20) res.push({d: best, km});
   }
-  return {d: best, km};
+  return res;
+}
+// Attache a la station ses positions (occ), son ecart minimal et le km correspondant ;
+// false si elle est hors du couloir maximal.
+function situerSurTrace(s){
+  const occ = positionsTrace(s.la, s.lo);
+  if(!occ.length){ s.ecart = Infinity; s.kmr = null; s.occ = []; return false; }
+  const m = occ.reduce((a, b) => b.d < a.d ? b : a);
+  s.ecart = m.d; s.kmr = m.km; s.occ = occ;
+  return true;
 }
 
 // ---------- Trajets memorises ----------
@@ -1026,12 +1307,20 @@ const trajetsLus = () => {
   try{ const t = JSON.parse(localStorage.getItem(CLE_TRAJETS)); return Array.isArray(t) ? t : []; }
   catch(e){ return []; }
 };
+// Champ `ar` (aller-retour) ajoute le 23/10/2026 : les trajets memorises sans ce champ restent valables.
 const trajetCourant = () => ({dep: maPosition($('depart').value) ? '' : $('depart').value.trim(),
                               arr: $('arrivee').value.trim(),
-                              sansPeage: $('sansPeage').checked});
+                              sansPeage: $('sansPeage').checked, ar: $('allerRetour').checked});
 const memeTrajet = (x, y) => String(x.dep).toLowerCase() === String(y.dep).toLowerCase() &&
-  String(x.arr).toLowerCase() === String(y.arr).toLowerCase() && !!x.sansPeage === !!y.sansPeage;
-const nomTrajet = t => `${t.dep || 'Ma position'} → ${t.arr}${t.sansPeage ? ' (sans péage)' : ''}`;
+  String(x.arr).toLowerCase() === String(y.arr).toLowerCase() && !!x.sansPeage === !!y.sansPeage && !!x.ar === !!y.ar;
+const nomTrajet = t => `${t.dep || 'Ma position'} ${t.ar ? '⇄' : '→'} ${t.arr}${t.sansPeage ? ' (sans péage)' : ''}`;
+// Lien de partage du plan : trajet tel que saisi (jamais une coordonnee) + fiche vehicule.
+function lienTrajet(){
+  const c = trajetCourant();
+  const o = (c.sansPeage ? 'p' : '') + (c.ar ? 'r' : '');
+  return `${lienBase()}#trajet=${encodeURIComponent(c.dep)}|${encodeURIComponent(c.arr)}|${$('couloir').value}|${o}` +
+         `&veh=${vehParam(REGL.vehicules[REGL.vehActif])}`;
+}
 function majTrajets(){
   const liste = trajetsLus();
   const sel = $('trajetsMemo');
@@ -1063,10 +1352,12 @@ $('trajetsMemo').onchange = e => {
   $('depart').value = t.dep || '';
   $('arrivee').value = t.arr || '';
   $('sansPeage').checked = !!t.sansPeage;
+  $('allerRetour').checked = !!t.ar;
   $('trajet').requestSubmit();
 };
 ['depart', 'arrivee'].forEach(id => $(id).addEventListener('input', majTrajets));
 $('sansPeage').addEventListener('change', majTrajets);
+$('allerRetour').addEventListener('change', majTrajets);
 window.addEventListener('storage', e => { if(e.key === CLE_TRAJETS) majTrajets(); });
 majTrajets();
 
@@ -1085,48 +1376,69 @@ $('pilule').onclick = () => rechercheOuverte(!$('recherche').classList.contains(
 document.addEventListener('echap', () => { rechercheOuverte(false); reticule(false); });
 function majPilule(){
   const c = trajetCourant();
-  $('piluleTxt').textContent = ROUTE && c.arr ? `${c.dep || 'Ma position'} → ${c.arr}` : 'Où allez-vous ?';
+  $('piluleTxt').textContent = ROUTE && c.arr ? `${c.dep || 'Ma position'} ${c.ar ? '⇄' : '→'} ${c.arr}` : 'Où allez-vous ?';
 }
+
+// Un itineraire IGN entre deux points, simplifie a ~400 points.
+async function itineraire(a, b, sansP){
+  // « Sans péage » : moteur bdtopo-pgr + interdiction des autoroutes (verifie
+  // le 09/08 : la contrainte est IGNOREE par bdtopo-osrm, respectee par pgr).
+  // Approximation assumee : quelques autoroutes gratuites (A75...) sont
+  // evitees aussi.
+  const u = `${ITI}?resource=${sansP ? 'bdtopo-pgr' : 'bdtopo-osrm'}&profile=car&optimization=fastest`+
+            `&start=${a.lon},${a.lat}&end=${b.lon},${b.lat}&geometryFormat=geojson`+
+            (sansP ? `&constraints=${encodeURIComponent('{"constraintType":"banned","key":"wayType","operator":"=","value":"autoroute"}')}` : '');
+  const r = await fetch(u);
+  if(!r.ok) throw new Error('calcul d\'itinéraire indisponible');
+  const j = await r.json();
+  const pts = j.geometry.coordinates;
+  const pas = Math.max(1, Math.round(pts.length/400));   // ~400 points suffisent
+  const sim = pts.filter((_, i) => i % pas === 0);
+  if(sim[sim.length-1] !== pts[pts.length-1]) sim.push(pts[pts.length-1]);
+  return {pts: sim, distance: j.distance, duration: j.duration};
+}
+const duree = min => min >= 60 ? `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, '0')}` : `${Math.round(min)} min`;
 
 async function calculerTrajet(ev){
   ev.preventDefault();
+  const sansGeste = TRAJET_SANS_GESTE; TRAJET_SANS_GESTE = false;
   infoT.textContent = 'calcul…';
   try{
     const [a, b] = await Promise.all([
       geocoder($('depart').value),
       geocoder($('arrivee').value)]);
-    // « Sans péage » : moteur bdtopo-pgr + interdiction des autoroutes (verifie
-    // le 09/08 : la contrainte est IGNOREE par bdtopo-osrm, respectee par pgr).
-    // Approximation assumee : quelques autoroutes gratuites (A75...) sont
-    // evitees aussi.
-    const sansP = $('sansPeage').checked;
-    const u = `${ITI}?resource=${sansP ? 'bdtopo-pgr' : 'bdtopo-osrm'}&profile=car&optimization=fastest`+
-              `&start=${a.lon},${a.lat}&end=${b.lon},${b.lat}&geometryFormat=geojson`+
-              (sansP ? `&constraints=${encodeURIComponent('{"constraintType":"banned","key":"wayType","operator":"=","value":"autoroute"}')}` : '');
-    const r = await fetch(u);
-    if(!r.ok) throw new Error('calcul d\'itinéraire indisponible');
-    const j = await r.json();
-    const pts = j.geometry.coordinates;
-    const pas = Math.max(1, Math.round(pts.length/400));   // ~400 points suffisent
-    ROUTE = pts.filter((_, i) => i % pas === 0);
-    if(ROUTE[ROUTE.length-1] !== pts[pts.length-1]) ROUTE.push(pts[pts.length-1]);
+    const sansP = $('sansPeage').checked, ar = $('allerRetour').checked;
+    // Aller-retour : le retour est un second itineraire B -> A (meme moteur, memes
+    // contraintes) ; ROUTE = aller puis retour, KMS continue, le total est la boucle.
+    const aller = await itineraire(a, b, sansP);
+    const retour = ar ? await itineraire(b, a, sansP) : null;
+    let pts = aller.pts, iRetour = null;
+    if(retour){ iRetour = pts.length; pts = pts.concat(retour.pts); }
+    ROUTE = pts; I_RETOUR = iRetour; ROUTE_AR = !!retour;
     preparerKms();
+    ALLER_KM = iRetour != null ? KMS[iRetour] : null;
+    const c = trajetCourant();
+    TRAJET = {dep: c.dep || 'Ma position', arr: c.arr, ar: !!retour, sansP,
+              km: (aller.distance + (retour ? retour.distance : 0)) / 1000,
+              min: (aller.duration + (retour ? retour.duration : 0)) / 60};
 
     if(CARTE){
-      CARTE.donnees('fh-trace', {type: 'FeatureCollection', features: [
-        {type: 'Feature', geometry: {type: 'LineString', coordinates: ROUTE}}]});
-      // Cadrage sur le trace : geste explicite (le bouton), donc autorise ; la feuille
-      // s'ouvre a moitie sur mobile, le cadrage laisse la place en bas.
+      const features = [{type: 'Feature', properties: {sens: 'aller'}, geometry: {type: 'LineString', coordinates: aller.pts}}];
+      if(retour) features.push({type: 'Feature', properties: {sens: 'retour'}, geometry: {type: 'LineString', coordinates: retour.pts}});
+      CARTE.donnees('fh-trace', {type: 'FeatureCollection', features});
+      // Cadrage sur le trace : geste explicite (le bouton), donc autorise — sauf trajet
+      // importe par l'URL, pose sans animation ; la feuille s'ouvre a moitie sur mobile,
+      // le cadrage laisse la place en bas.
       let s = 90, n = -90, w = 180, e = -180;
       ROUTE.forEach(([lo, la]) => { s = Math.min(s, la); n = Math.max(n, la); w = Math.min(w, lo); e = Math.max(e, lo); });
       const h = map.getContainer().clientHeight;
       const pad = MOBILE.matches
         ? {top: 100, bottom: Math.min(Math.round(h / 2) + 16, Math.max(0, h - 160)), left: 24, right: 24}
         : {top: 60, bottom: 60, left: 60, right: 60};
-      CARTE.cadrer({s, n, w, e}, pad, true);
+      CARTE.cadrer({s, n, w, e}, pad, !sansGeste);
     }
-    infoT.textContent = `${(j.distance/1000).toFixed(0)} km · ${Math.round(j.duration/60)} min`+
-      `${sansP ? ' · sans autoroute' : ''} · ${a.label} → ${b.label}`;
+    infoT.textContent = `${Math.round(TRAJET.km)} km · ${duree(TRAJET.min)}`+
+      `${sansP ? ' · sans autoroute' : ''}${ar ? ' · aller-retour' : ''} · ${a.label} ${ar ? '⇄' : '→'} ${b.label}`;
     $('effacer').hidden = false;
     majTrajets(); majPilule();
     replierStations(true);
@@ -1134,6 +1446,7 @@ async function calculerTrajet(ev){
     charger();
   }catch(e){
     infoT.textContent = e.message;
+    if(sansGeste) charger();   // trajet importe injoignable : les prix autour de soi, au moins
   }
 }
 $('trajet').onsubmit = calculerTrajet;
@@ -1147,7 +1460,7 @@ $('inverser').onclick = () => {
   if(ROUTE) $('trajet').requestSubmit();
 };
 $('effacer').onclick = () => {
-  ROUTE = null; KMS = null;
+  ROUTE = null; KMS = null; I_RETOUR = null; ALLER_KM = null; ROUTE_AR = false; TRAJET = null;
   if(CARTE) CARTE.donnees('fh-trace', TRACE_VIDE);
   $('effacer').hidden = true;
   majTrajets(); majPilule(); replierStations(false);
@@ -1178,6 +1491,7 @@ if(REGL.sansCher === false) $('sansCher').checked = false;
 if(REGL.couloir) $('couloir').value = REGL.couloir;
 if(REGL.queUtiles === false) $('queUtiles').checked = false;
 if(REGL.sansPeage) $('sansPeage').checked = true;
+if(REGL.allerRetour && !TRAJET_IMPORT) $('allerRetour').checked = true;
 appliquerVeh();
 appliquerTheme();
 majFonds();
@@ -1197,8 +1511,26 @@ async function chargerReferentiel(){
   REF_ROWS = normalise(rows);
 }
 chargerReferentiel().then(rendu).catch(() => {});
-charger();          // on affiche tout de suite, sans attendre l'autorisation
-localiser(true);    // puis on recentre sur l'appareil si l'utilisateur accepte
+// Trajet importe (#trajet=) : calcule tout de suite si le depart est une adresse, sinon
+// une fois la geolocalisation repondue (acceptee ou non : le repere memorise sert alors).
+function lancerTrajetImporte(){
+  if(!TRAJET_IMPORT) return;
+  TRAJET_IMPORT = null;
+  TRAJET_SANS_GESTE = true;
+  $('trajet').requestSubmit();
+}
+if(TRAJET_IMPORT && !TRAJET_IMPORT.attendPosition) lancerTrajetImporte();
+else charger();     // on affiche tout de suite, sans attendre l'autorisation
+localiser(true, () => lancerTrajetImporte());   // puis on recentre sur l'appareil si l'utilisateur accepte
+
+// ---------- Assistant vehicule (premier lancement, ou bouton du garage) ----------
+const ASSISTANT = creerAssistant({
+  $, REGL, CASES, TYPES, CATEGORIES_CONSO, estimerConso, autonomieUtile, ico,
+  ouvrirFeuille, fermerFeuille, localiser, reticule, geocoder, situer, rechercheOuverte, MOBILE, reglagesBruts,
+  apresVehicule(){ appliquerVeh(); majSelectVeh(); charger(); },
+});
+$('vehAssistant').onclick = () => { reglagesEcrits(); ASSISTANT.ouvrir(REGL.vehicules[REGL.vehActif]); };
+if(PREMIER && !IMPORT_HASH && !REGL.assistantVu) setTimeout(() => ASSISTANT.ouvrir(), 0);
 
 // ---------- Nouvelle version disponible ----------
 // Home Assistant sert /local/ avec un cache navigateur de 31 jours : sans ce controle,
