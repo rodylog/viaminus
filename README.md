@@ -32,8 +32,16 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   10 % les plus chers du secteur, stations en **rupture** écartées, dates de
   relevé dans chaque bulle (rouge au-delà de 4 jours).
 - **Position** : géolocalisation de l'appareil (contexte sécurisé requis —
-  servir en https), clic droit pour poser le repère, `#pos=lat,lon` par l'URL.
-  Aucune coordonnée personnelle embarquée.
+  servir en https), appui long ou clic droit sur la carte pour poser le repère
+  (ou menu Position : sur la carte avec réticule, une adresse), `#pos=lat,lon`
+  par l'URL. Aucune coordonnée personnelle embarquée.
+- **Interface** : la carte est l'écran, tout le reste flotte dessus — pilule de
+  recherche, chip véhicule (garage), feuille glissante à trois crans sur mobile,
+  panneau gauche de 400 px sur bureau ; fiche station, garage, options et aide
+  en feuilles, jamais une nouvelle page. Fond Plan IGN vectoriel « atténué »
+  (orthophoto en option), mode sombre automatique ou choisi, transformé côté
+  client. « Y aller » ouvre l'application de navigation choisie au premier usage
+  (lien `geo:`, Magic Earth, OsmAnd, Google Maps, Waze, OpenStreetMap).
 
 ## Usage
 
@@ -42,8 +50,12 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
 ./generate.py --open     # puis l'ouvre dans le navigateur
 ```
 
-Le fichier généré est autonome (Leaflet embarqué, empreintes SHA-384 vérifiées) ;
-seul le chargement des prix, des tuiles et du géocodage passe par le réseau.
+Le fichier généré est autonome (MapLibre GL JS embarqué, empreintes SHA-384
+vérifiées, worker créé en `blob:`) ; seul le chargement des prix, du style et des
+tuiles IGN et du géocodage passe par le réseau. `--sans-snapshot` génère sans
+interroger le flux (repli hors ligne vide) ; sans accès à unpkg, déposer
+`maplibre-gl.js` et `maplibre-gl.css` (dist/ du paquet npm, version de
+`generate.py`) dans `~/.cache/fuelpilot/`.
 
 ## Développement
 
@@ -52,17 +64,25 @@ Le gabarit vit dans `src/` et `generate.py` l'assemble en un seul fichier :
 | Fichier | Rôle |
 |---|---|
 | `src/index.html` | structure de la page (`__APP_CSS__`, `__APP_JS__` = points d'insertion) |
-| `src/app.css` | styles ; jetons dans `:root` (couleurs métier, rayons) |
+| `src/app.css` | styles ; jetons dans `:root` (couleurs métier, surfaces, rayons), mode sombre, mise en page mobile / bureau |
 | `src/plan.js` | algorithme du plan de pleins, pur, exporté pour Node |
-| `src/app.js` | carte, données, interface |
+| `src/ui/icones.js` | icônes SVG inline (jeu Lucide, MIT) : `ico('nom')` |
+| `src/ui/feuilles.js` | feuille glissante à trois crans (mobile), feuilles modales, Échap, focus |
+| `src/ui/fond.js` | carte MapLibre : style IGN vectoriel, transformation sombre, orthophoto, repli raster IGN puis OSM, WebGL absent |
+| `src/app.js` | données, rendu (marqueurs, liste, plan), garage, itinéraire, position, menus |
 | `src/plan.test.js` | tests de l'algorithme |
+
+Les scripts sont assemblés dans l'ordre de `SCRIPTS` (`generate.py`) en un seul
+`<script>` : `plan.js`, `ui/*.js`, puis `app.js`.
 
 ```bash
 node --test src/plan.test.js   # tests de l'algorithme (Node ≥ 20)
 ```
 
-La CSP est recalculée à chaque génération à partir des scripts réellement inline ;
-un nouvel hôte réseau doit être ajouté à `connect-src` / `img-src` dans `csp_meta()`.
+La CSP est recalculée à chaque génération à partir des scripts réellement inline
+(bibliothèque + application) ; un nouvel hôte réseau doit être ajouté à
+`connect-src` / `img-src` dans `csp_meta()`. MapLibre charge tuiles, glyphes et
+sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
 
 ## Sources et licences
 
@@ -70,7 +90,7 @@ un nouvel hôte réseau doit être ajouté à `connect-src` / `img-src` dans `cs
 - Fonds de carte : Plan IGN / orthophotos (Géoplateforme) ; OpenStreetMap en secours
   seulement si l'IGN ne répond pas (CARTO retiré le 17/09/2026 : clé désormais exigée).
 - Itinéraires : Géoplateforme IGN. Géocodage : Base Adresse Nationale.
-- [Leaflet](https://leafletjs.com) (BSD-2). Code : MIT.
+- [MapLibre GL JS](https://maplibre.org) (BSD-3), icônes [Lucide](https://lucide.dev) (MIT). Code : MIT.
 
 ## Limites connues
 
