@@ -883,7 +883,7 @@ function situer(lat, lon, libelle, explicite){
       const c = j.features?.[0]?.properties?.city;
       if(c){
         $('lieu').textContent = ' · ' + c;
-        document.title = 'FillHop — ' + c;
+        document.title = 'ViaMinus — ' + c;
       }
     }).catch(() => {});
 }
@@ -1227,7 +1227,7 @@ function montrerNouvelleVersion(){
   const d = document.createElement('div');
   d.id = 'majDispo'; d.className = 'maj-dispo'; d.setAttribute('role', 'status');
   const t = document.createElement('span');
-  t.textContent = 'Nouvelle version de FillHop disponible';
+  t.textContent = 'Nouvelle version de ViaMinus disponible';
   const b = document.createElement('button');
   b.type = 'button'; b.className = 'btn primaire'; b.textContent = 'Recharger';
   b.onclick = () => location.reload();
