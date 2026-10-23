@@ -105,22 +105,35 @@ function styleRaster(id, tuiles, attribution, sombre){
              {id, type: 'raster', source: id,
               paint: sombre ? {'raster-brightness-max': 0.7, 'raster-saturation': -0.4} : {}}]};
 }
-const styleVide = sombre => ({version: 8, sources: {}, layers: [
-  {id: 'fond', type: 'background', paint: {'background-color': sombre ? '#0f1115' : '#eef0f3'}}]});
 
 // ---- La carte ----
 // creerCarte({centre:[lat,lon], zoom, sombre, fond}) -> objet carte ou null sans WebGL.
 // L'objet expose : map (MapLibre), fond(nom), sombre(bool), couche(id, source, layer),
 // donnees(id, geojson), aller([lat,lon], zoom, explicite), cadrer(bbox, padding, explicite).
+//
+// UN SEUL chargement de style au demarrage (correctif du 23/10/2026). Avant : la carte
+// naissait avec un style vide (chargement n° 1, differe a la frame suivante par MapLibre),
+// puis le style IGN arrivait par fetch et passait par map.setStyle() (chargement n° 2).
+// Entre les deux, MapLibre tentait un « diff » de styles ; quand le style IGN sortait du
+// cache HTTP avant la premiere frame, le style vide n'etait pas fini de charger et le diff
+// echouait (« Unable to perform style diff: Style is not done loading. Rebuilding the
+// style from scratch », reproduit en headless), d'ou une reconstruction complete de plus
+// et un premier rendu des tuiles tres tardif. Desormais : la carte est creee SANS style
+// (le fond neutre, c'est le CSS de #map), le style IGN est charge a part, transforme en
+// sombre si besoin, puis pose une seule fois ; theme et orthophoto ne touchent le style
+// qu'apres style.load, et jamais quand rien n'a change.
 function creerCarte(opts){
   if(!webglDispo() || typeof maplibregl === 'undefined') return null;
   let sombre = !!opts.sombre, fond = opts.fond === 'ortho' ? 'ortho' : 'plan';
   let base = null;            // style IGN vectoriel (clair) une fois charge
+  let baseSombre = null;      // sa transformation sombre, calculee une fois
   let secours = null;         // 'plan-raster' | 'osm' quand l'IGN vectoriel manque
+  let pret = false;           // un style est charge (style.load recu)
+  let cleStyle = '';          // style actuellement pose : evite un setStyle a l'identique
   let erreursTuiles = 0, tuilesOk = 0;
   const couches = new Map();  // id -> {source, layer} (trace du trajet…), remis apres chaque setStyle
   const map = new maplibregl.Map({
-    container: 'map', style: styleVide(sombre),
+    container: 'map',         // pas de style ici : il est pose une seule fois, une fois charge
     center: [opts.centre[1], opts.centre[0]], zoom: opts.zoom, minZoom: 3, maxZoom: 19,
     attributionControl: false, fadeDuration: CALME ? 0 : 300,
     dragRotate: false, pitchWithRotate: false, touchPitch: false,
@@ -136,12 +149,18 @@ function creerCarte(opts){
   function styleCourant(){
     if(secours === 'osm') return styleRaster('osm', TUILES_OSM, ATTRIB_OSM, sombre);
     if(secours === 'plan-raster' || !base) return styleRaster('ign', TUILES_PLAN, 'Plan IGN ' + ATTRIB_IGN, sombre);
-    return sombre ? assombrirStyle(base) : base;
+    if(!sombre) return base;
+    if(!baseSombre) baseSombre = assombrirStyle(base);
+    return baseSombre;
   }
+  // Pose le style courant ; rien tant qu'aucun style n'est disponible (fond neutre CSS),
+  // rien non plus si le style demande est deja celui en place.
   function appliquerStyle(){
-    const s = styleCourant();
-    if(!base && !secours){ map.setStyle(styleVide(sombre)); return; }
-    map.setStyle(s);
+    if(!base && !secours) return;
+    const cle = `${secours || 'vecteur'}:${sombre ? 'sombre' : 'clair'}`;
+    if(cle === cleStyle) return;
+    cleStyle = cle;
+    map.setStyle(styleCourant());
   }
   // Apres chaque chargement de style : orthophoto (sous les toponymes du plan) et
   // couches de l'application (trace du trajet), toujours au-dessus.
@@ -159,7 +178,7 @@ function creerCarte(opts){
       if(!map.getLayer(id)) map.addLayer(Object.assign({id, source: id}, c.layer));
     }
   }
-  map.on('style.load', reposer);
+  map.on('style.load', () => { pret = true; reposer(); });
   // Panne IGN : 6 tuiles en erreur sans aucune tuile chargee -> raster IGN, puis OSM.
   map.on('data', e => { if(e.dataType === 'source' && e.tile) tuilesOk++; });
   map.on('error', e => {
@@ -175,7 +194,7 @@ function creerCarte(opts){
     appliquerStyle();
   });
   // Style IGN vectoriel : charge a part (pour pouvoir le transformer en sombre),
-  // puis applique ; injoignable -> Plan IGN raster (meme hote, autre service).
+  // puis pose une seule fois ; injoignable -> Plan IGN raster (meme hote, autre service).
   fetch(URL_STYLE_IGN).then(r => { if(!r.ok) throw new Error('style ' + r.status); return r.json(); })
     .then(j => { base = normaliserStyle(j, URL_STYLE_IGN); appliquerStyle(); })
     .catch(() => { secours = 'plan-raster'; appliquerStyle(); });
@@ -183,26 +202,28 @@ function creerCarte(opts){
   const carte = {
     map,
     // Diagnostic (console, recette) : quel fond est servi et pourquoi.
-    etat(){ return {secours, base: !!base, sombre, fond, erreursTuiles, tuilesOk}; },
+    etat(){ return {secours, base: !!base, sombre, fond, pret, erreursTuiles, tuilesOk}; },
     fond(nom){
       fond = nom === 'ortho' ? 'ortho' : 'plan';
-      if(map.getLayer('fh-ortho')) map.setLayoutProperty('fh-ortho', 'visibility', fond === 'ortho' ? 'visible' : 'none');
+      if(pret && map.getLayer('fh-ortho')) map.setLayoutProperty('fh-ortho', 'visibility', fond === 'ortho' ? 'visible' : 'none');
       return fond;
     },
+    // Theme : avant le premier style, on retient seulement le choix (le chargement
+    // unique en tiendra compte) ; apres, un seul setStyle, et seulement si ca change.
     sombre(v){
       if(!!v === sombre) return;
       sombre = !!v;
-      appliquerStyle();
+      if(pret) appliquerStyle();
     },
     // Couche de l'application (source GeoJSON + couche), survit aux changements de style.
     couche(id, source, layer){
       couches.set(id, {source, layer});
-      if(map.isStyleLoaded()) reposer();
+      if(pret) reposer();
     },
     donnees(id, geojson){
       const c = couches.get(id);
-      if(c) c.source.data = geojson;
-      const src = map.getSource(id);
+      if(c) c.source.data = geojson;       // repris par reposer() au prochain style.load
+      const src = pret ? map.getSource(id) : null;
       if(src) src.setData(geojson);
     },
     // Camera : jamais d'animation sans geste explicite de l'utilisateur, jamais avec
