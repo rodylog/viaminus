@@ -22,12 +22,16 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   facturés en carburant ET en minutes. L'ancien modèle facturait à chaque arrêt
   tout le reste du trajet et poussait vers une station tardive et chère
   (Montpellier → Tours : Gannat 0,879 au lieu de Vic-le-Comte 0,859). Chaque
-  étape affiche les litres à prendre et le carburant à bord. Champ **À bord**
-  (km restants au départ, facultatif, non mémorisé) : le plan ne fait le plein
-  au départ que s'il y est moins cher qu'en route. Carte-héros : le **carburant du
-  voyage** en chiffre (plein de départ compris), « 2 arrêts · ≈ 14 min · −6,40 €
-  vs pleins au prix médian » (référence = le même calcul sur les mêmes stations,
-  tous les prix remplacés par la médiane du couloir), ligne de temps verticale
+  étape affiche les litres à prendre et le carburant à bord. Champ **Réservoir
+  au départ** (km ou litres — l'unité est mémorisée, la valeur non), demandé
+  d'office au lancement de chaque nouveau trajet (« Il vous reste combien dans
+  le réservoir ? », Valider / Passer = plein ; jamais sur un lien partagé) : le
+  plan ne fait le plein au départ que s'il y est moins cher qu'en route.
+  Carte-héros : le **carburant du
+  voyage** en chiffre (plein de départ compris), « 2 arrêts · ≈ 14 min · votre
+  prix 0,85 €/L · −11,40 € vs pleins au plus cher (1,05 €/L) » (référence = le
+  même calcul sur les mêmes stations, tous les prix remplacés par le plus cher du
+  couloir — plus de médiane, Eric 24/10/2026), ligne de temps verticale
   (départ, étapes avec « Y aller », arrivée, retour), mini-barres par couloir
   (toucher une barre change le couloir), états dessinés (infaisable avec trois
   remèdes, aucun arrêt nécessaire, véhicule à compléter).
@@ -110,7 +114,7 @@ Le gabarit vit dans `src/` et `generate.py` l'assemble en un seul fichier :
 |---|---|
 | `src/index.html` | structure de la page (`__APP_CSS__`, `__APP_JS__` = points d'insertion) |
 | `src/app.css` | styles ; jetons dans `:root` (couleurs métier, surfaces, rayons), mode sombre, mise en page mobile / bureau |
-| `src/plan.js` | algorithme du plan de pleins (DP, coût du voyage, médiane, économie), pur, exporté pour Node |
+| `src/plan.js` | algorithme du plan de pleins (DP sur l'état du réservoir, coût du voyage, prix moyen, économie vs le plus cher), pur, exporté pour Node |
 | `src/conso.js` | table de consommation embarquée (`estimerConso`), pure, exportée pour Node |
 | `src/ui/icones.js` | icônes SVG inline (jeu Lucide, MIT) : `ico('nom')` |
 | `src/ui/feuilles.js` | feuille glissante à trois crans (mobile), feuilles modales, Échap, focus |

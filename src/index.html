@@ -47,11 +47,12 @@ __APP_CSS__
             </select>
           </label>
           <label class="case"><input type="checkbox" id="sansPeage"> Sans péage</label>
-          <!-- Autonomie restante au depart (Eric, 24/10/2026) : vide = on part le plein fait ; sinon le plan
-               peut faire le plein en route s'il y est moins cher qu'au depart. -->
-          <label class="ctl" title="Autonomie restante au départ, en km (vide : vous partez le plein fait)">À bord
-            <input id="aBord" type="number" min="0" step="10" inputmode="numeric" placeholder="plein" style="width:5.2em"
-                   aria-label="Autonomie restante au départ, en km ; vide : plein"> km</label>
+          <!-- Autonomie restante au depart (Eric, 24/10/2026), en km ou en litres : vide = on part le plein
+               fait ; sinon le plan peut faire le plein en route s'il y est moins cher qu'au depart. -->
+          <label class="ctl" title="Ce qu'il reste dans le réservoir au départ, en km ou en litres (vide : vous partez le plein fait)">Réservoir au départ
+            <input id="aBord" type="number" min="0" step="1" inputmode="decimal" placeholder="plein" style="width:5.2em"
+                   aria-label="Réservoir au départ, en km ou en litres ; vide : plein">
+            <select id="aBordUnite" aria-label="Unité du réservoir au départ"><option value="km">km</option><option value="l">L</option></select></label>
           <!-- Aller-retour : case retirée du formulaire le 24/10/2026 (Eric : « juste une double flèche
                pour inverser ») ; l'entrée reste, cachée, pour les liens #trajet=…|r et les trajets mémorisés. -->
           <input type="checkbox" id="allerRetour" hidden>
@@ -285,6 +286,21 @@ __APP_CSS__
     </div>
   </section>
 
+  <!-- Question d'office au lancement d'un trajet (Eric, 24/10/2026) : combien de km reste-t-il au
+       depart ? Valider remplit « Réservoir au départ » ; Passer = on part le plein fait. -->
+  <section class="modale" id="aBordQ" role="dialog" aria-modal="true" aria-labelledby="aBordTitre" hidden>
+    <div class="modale-tete"><h2 id="aBordTitre"><span data-ico="pompe"></span> Il vous reste combien dans le réservoir ?</h2>
+      <button class="rond petit fermer" type="button" aria-label="Fermer"><span data-ico="croix"></span></button></div>
+    <p class="note">En kilomètres ou en litres, ce que la jauge indique au départ. Le plan ne fera le plein au départ
+      que s'il y est moins cher qu'en route. « Passer » : vous partez le plein fait.</p>
+    <form id="aBordForm" class="ligne">
+      <label class="ctl"><input id="aBordQkm" type="number" min="0" step="1" inputmode="decimal" placeholder="…"
+             style="width:6em" aria-label="Ce qu'il reste dans le réservoir au départ">
+        <select id="aBordQu" aria-label="Unité"><option value="km">km</option><option value="l">L</option></select></label>
+      <button class="btn primaire" type="submit">Valider</button>
+      <button class="btn" type="button" id="aBordPasser">Passer</button>
+    </form>
+  </section>
   <section class="modale" id="menuPosition" role="dialog" aria-modal="true" aria-labelledby="posTitre" hidden>
     <div class="modale-tete"><h2 id="posTitre">Point de repère</h2>
       <button class="rond petit fermer" type="button" aria-label="Fermer"><span data-ico="croix"></span></button></div>
@@ -339,11 +355,12 @@ __APP_CSS__
         page dit où faire le plein — plein au départ, arrêts choisis au moins cher parmi les stations atteignables
         du couloir en comptant les détours en carburant et en minutes, à chaque arrêt « juste ce qu'il faut » ou le
         plein (quand l'arrêt suivant, imposé par l'autonomie, est plus cher), plein à l'arrivée, en gardant la réserve ;
-        « À bord » (km restants au départ, facultatif) : le plan ne fait alors le plein au départ que s'il y est moins
-        cher qu'en route, et compte ce que vous avez déjà au prix du départ
+        « Réservoir au départ » (km ou litres, demandé au lancement du trajet — Passer = plein) : le plan ne fait
+        alors le plein au départ que s'il y est moins cher qu'en route, et compte ce que vous avez déjà au prix du départ
         choisie (en km, comprise dans l'autonomie d'un plein). Le
-        chiffre-héros est le carburant du voyage, plein de départ compris ; l'économie se mesure contre les mêmes
-        arrêts possibles « au prix médian » du couloir. Les mini-barres comparent les couloirs : toucher une barre
+        chiffre-héros est le carburant du voyage, plein de départ compris, avec votre prix moyen au litre ; l'économie
+        se mesure contre les mêmes arrêts possibles au prix le plus cher du couloir (ce que vous auriez payé au pire
+        endroit). Les mini-barres comparent les couloirs : toucher une barre
         change le couloir.</li>
       <li><b>Partager</b> : « Partager le plan » donne un lien <code>#trajet=départ|arrivée|couloir|options&amp;veh=…</code>
         (départ vide = « Ma position », jamais une coordonnée) ; la fiche véhicule se partage par <code>#veh=…</code>.</li>

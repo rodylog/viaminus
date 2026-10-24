@@ -15,7 +15,7 @@
 //
 // cand : stations triees par km ({s, v, km, e, p}) ; A : autonomie utile (km) ;
 // total : km du trajet ; lkm : L/km ; opts.pd : €/L du plein de depart (defaut : la moins
-// chere a 15 km du depart, sinon la mediane) ; opts.utiles : calculer les stations par
+// chere a 15 km du depart, sinon la premiere etape) ; opts.utiles : calculer les stations par
 // lesquelles passe un plan quasi optimal (passe arriere, plus couteuse). Un arret coute
 // e km a l'aller et e au retour.
 // Renvoie {plan, coutAchats, voyage, reste, utiles} — plan:null si infaisable, plan:[]
@@ -45,13 +45,18 @@ function prixBout(cand, test){
 function optimiserPlan(candTous, A, total, lkm, opts = {}){
   const cand = elaguer(candTous, total);
   const n = cand.length, FIN = n;
-  const pd = opts.pd != null ? opts.pd : (prixBout(candTous, c => c.km <= 15) ?? prixMedian(candTous));
+  // Prix du plein de depart : la moins chere a 15 km du depart ; a defaut, la premiere etape
+  // du plan (c'est la qu'on fera le plein), a defaut la moins chere du couloir.
+  const pd15 = opts.pd != null ? opts.pd : prixBout(candTous, c => c.km <= 15);
+  const pdDefaut = plan => pd15 != null ? pd15 : (plan && plan.length ? plan[0].p : prixBout(candTous, () => true));
   // g0 : carburant a bord au depart (km utiles) ; defaut A = on part le plein fait. S'il est
   // plus bas, la station du depart n'est qu'un candidat parmi d'autres : le plan y fait le
   // plein seulement si c'est moins cher qu'en route (Eric, 24/10/2026).
   const g0 = Math.max(0, Math.min(A, opts.g0 != null ? opts.g0 : A));
-  if(total <= g0) return {plan: [], coutAchats: 0, voyage: pd == null ? null : pd * lkm * total,
-                          reste: g0 - total, utiles: new Set()};
+  if(total <= g0){
+    const pd = pdDefaut([]);
+    return {plan: [], coutAchats: 0, voyage: pd == null ? null : pd * lkm * total, reste: g0 - total, utiles: new Set()};
+  }
   const km = i => i < 0 ? 0 : i >= n ? total : cand[i].km;
   const ex = i => (i < 0 || i >= n) ? 0 : cand[i].e;
   const leg = (j, i) => km(i) - km(j) + ex(j) + ex(i);
@@ -113,6 +118,7 @@ function optimiserPlan(candTous, A, total, lkm, opts = {}){
   const coutAchats = plan.reduce((t, e) => t + e.p * lkm * e.q, 0);
   // Carburant consomme : celui du depart (g0 km, compte au prix du depart, consomme en
   // entier des qu'il y a un arret) puis les achats, tous consommes (le dernier est « juste »).
+  const pd = pdDefaut(plan);
   const voyage = pd == null ? null : pd * lkm * g0 + coutAchats;
   const r = {plan, coutAchats, voyage, reste: finReste};
   if(!opts.utiles) return r;
@@ -172,29 +178,34 @@ function coutVoyage(cand, r){
   return r.voyage;
 }
 
-// Mediane des prix au litre des candidats du couloir ; null sans candidat.
-function prixMedian(cand){
-  if(!cand.length) return null;
-  const px = cand.map(c => c.p).sort((a, b) => a - b);
-  const m = px.length >> 1;
-  return px.length % 2 ? px[m] : (px[m - 1] + px[m]) / 2;
+// Economie du plan par rapport a des pleins AU PLUS CHER du couloir (Eric, 24/10/2026 : « le
+// prix median est une absurdite ») : la reference est le MEME optimiserPlan sur les MEMES
+// candidats, tous les prix remplaces par le plus cher (plein de depart au plus cher aussi) —
+// ce qu'on aurait paye en s'arretant au pire endroit ; economie = reference - voyage reel.
+// Renvoie {economie, prix (€/L de reference), reference}, ou null si infaisable ou non chiffrable.
+function economieVsPlusCher(cand, A, total, lkm, voyage, opts = {}){
+  const prix = prixMax(cand);
+  if(prix == null || voyage == null) return null;
+  const rm = optimiserPlan(cand.map(c => Object.assign({}, c, {p: prix})), A, total, lkm, {pd: prix, g0: opts.g0});
+  if(rm.plan === null || rm.voyage == null) return null;
+  return {economie: rm.voyage - voyage, prix, reference: rm.voyage};
 }
 
-// Economie du plan par rapport a des « pleins au prix median » : la reference est le
-// MEME optimiserPlan sur les MEMES candidats, tous les prix remplaces par la mediane
-// (plein de depart a la mediane aussi) ; economie = reference -
-// carburant reel du voyage. Une reference a prix uniformes ne choisit ses arrets que sur
-// les detours et la penalite d'arret : c'est ce que paierait un conducteur qui s'arrete
-// « n'importe ou » dans le couloir. voyage = voyage reel (null -> null). Renvoie
-// {economie, median, reference}, ou null si infaisable ou non chiffrable.
-function economieVsMedian(cand, A, total, lkm, voyage, opts = {}){
-  const median = prixMedian(cand);
-  if(median == null || voyage == null) return null;
-  const rm = optimiserPlan(cand.map(c => Object.assign({}, c, {p: median})), A, total, lkm, {pd: median, g0: opts.g0});
-  if(rm.plan === null || rm.voyage == null) return null;
-  return {economie: rm.voyage - voyage, median, reference: rm.voyage};
+// Prix le plus cher des candidats (les stations masquees comme trop cheres n'y sont pas) ;
+// null sans candidat.
+function prixMax(cand){
+  return cand.length ? Math.max(...cand.map(c => c.p)) : null;
+}
+
+// Prix moyen au litre reellement paye par le plan : carburant du voyage / litres consommes
+// (reservoir de depart + achats) ; null si non chiffrable.
+function prixMoyen(r, lkm, g0){
+  if(!r || r.plan === null || r.voyage == null) return null;
+  const km = (r.plan.length ? g0 : 0) + r.plan.reduce((t, e) => t + e.q, 0);
+  const litres = lkm * (r.plan.length ? km : (g0 - (r.reste || 0)));
+  return litres > 0 ? r.voyage / litres : null;
 }
 
 // Export Node (tests) ; sans effet dans la page, ou `module` n'existe pas.
 if(typeof module !== 'undefined' && module.exports)
-  module.exports = {optimiserPlan, pleinsExtremites, autonomieUtile, coutVoyage, prixMedian, economieVsMedian};
+  module.exports = {optimiserPlan, pleinsExtremites, autonomieUtile, coutVoyage, prixMax, prixMoyen, economieVsPlusCher};

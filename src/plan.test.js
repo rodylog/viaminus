@@ -6,7 +6,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {optimiserPlan, pleinsExtremites, autonomieUtile, coutVoyage, prixMedian, economieVsMedian} = require('./plan.js');
+const {optimiserPlan, pleinsExtremites, autonomieUtile, coutVoyage, prixMax, prixMoyen, economieVsPlusCher} = require('./plan.js');
 
 function presque(a, b, tol = 1e-9){ return Math.abs(a - b) < tol; }
 const st = (s, km, p, e = 0) => ({s, km, e, p});
@@ -140,7 +140,7 @@ test('autonomie saisie sans conso : l\'autonomie suffit a situer les arrets', ()
   assert.deepStrictEqual(autonomieUtile(0, 0, 650, 30), {plein: 650, A: 620, source: 'autonomie'});
 });
 
-// ---- coutVoyage, prixMedian, economieVsMedian ----
+// ---- coutVoyage, prixMax, prixMoyen, economieVsPlusCher ----
 
 test('coutVoyage : reprend le voyage du plan ; null si infaisable', () => {
   const r = optimiserPlan([st('D', 5, 0.90), st('BON', 300, 0.85)], 370, 660, 0.1);
@@ -149,26 +149,31 @@ test('coutVoyage : reprend le voyage du plan ; null si infaisable', () => {
   assert.strictEqual(coutVoyage([], null), null);
 });
 
-test('prixMedian : impair -> valeur du milieu ; pair -> moyenne ; vide -> null', () => {
-  assert.strictEqual(prixMedian([st('a', 0, 0.9), st('b', 0, 0.7), st('c', 0, 0.8)]), 0.8);
-  assert.ok(presque(prixMedian([st('a', 0, 0.9), st('b', 0, 0.7)]), 0.8));
-  assert.strictEqual(prixMedian([]), null);
+test('prixMax : le plus cher du couloir ; vide -> null', () => {
+  assert.strictEqual(prixMax([st('a', 0, 0.9), st('b', 0, 0.7), st('c', 0, 1.05)]), 1.05);
+  assert.strictEqual(prixMax([]), null);
+});
+
+test('prixMoyen : carburant du voyage / litres consommes (cas Tours : 57.95 EUR pour 66 L)', () => {
+  const r = optimiserPlan([st('D', 5, 0.90), st('BON', 300, 0.85)], 370, 660, 0.1);
+  assert.ok(presque(prixMoyen(r, 0.1, 370), 57.95 / 66));
+  assert.strictEqual(prixMoyen({plan: null}, 0.1, 370), null);
 });
 
 test('economie nulle quand tous les prix sont egaux', () => {
   const cand = [st('D', 5, 0.9), st('S', 300, 0.9), st('F', 655, 0.9)];
   const r = optimiserPlan(cand, 370, 660, 0.1);
-  const eco = economieVsMedian(cand, 370, 660, 0.1, r.voyage);
-  assert.ok(presque(eco.economie, 0) && presque(eco.median, 0.9));
+  const eco = economieVsPlusCher(cand, 370, 660, 0.1, r.voyage);
+  assert.ok(presque(eco.economie, 0) && presque(eco.prix, 0.9));
 });
 
 test('economie positive quand une station moins chere est sur le trajet (cas Tours)', () => {
-  // mediane de [0.90, 0.85, 1.05, 0.90] = 0.90 ; reference : 370 a 0.90 + 290 a 0.90 = 59.40 ;
-  // reel 57.95 -> economie 1.45.
+  // plus cher de [0.90, 0.85, 1.05, 0.90] = 1.05 ; reference : 660 km a 1.05 = 69.30 ;
+  // reel 57.95 -> economie 11.35.
   const cand = [st('D', 5, 0.90), st('BON', 300, 0.85), st('CHER', 360, 1.05), st('F', 655, 0.90)];
   const r = optimiserPlan(cand, 370, 660, 0.1);
-  const eco = economieVsMedian(cand, 370, 660, 0.1, r.voyage);
-  assert.ok(presque(eco.economie, 1.45) && presque(eco.reference, 59.4));
+  const eco = economieVsPlusCher(cand, 370, 660, 0.1, r.voyage);
+  assert.ok(presque(eco.economie, 11.35) && presque(eco.reference, 69.3) && eco.prix === 1.05);
 });
 
 // ---- g0 : carburant a bord au depart (Eric, 24/10/2026) ----
@@ -192,6 +197,6 @@ test('a bord suffisant : aucun arret ; insuffisant pour la premiere station : in
 });
 
 test('economie : infaisable ou voyage non chiffrable -> null', () => {
-  assert.strictEqual(economieVsMedian([], 100, 150, 1, null), null);
-  assert.strictEqual(economieVsMedian([st('S', 5, 1)], 100, 150, 1, 10), null);   // infaisable a la mediane
+  assert.strictEqual(economieVsPlusCher([], 100, 150, 1, null), null);
+  assert.strictEqual(economieVsPlusCher([st('S', 5, 1)], 100, 150, 1, 10), null);   // infaisable au plus cher aussi
 });

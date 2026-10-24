@@ -466,7 +466,9 @@ function rendu(){
       // A bord au depart (km, facultatif, Eric 24/10/2026) : vide = on part le plein fait ;
       // sinon le plan peut faire le plein en route s'il y est moins cher. Utile = valeur - reserve.
       const reserve = au.plein - A;
-      const aBord = $('aBord').value.trim() === '' ? null : Math.max(0, Math.min(au.plein, +$('aBord').value || 0));
+      const aBordBrut = $('aBord').value.trim() === '' ? null : Math.max(0, +$('aBord').value || 0);
+      const aBordL = $('aBordUnite').value === 'l';   // en litres : converti avec la conso
+      const aBord = aBordBrut == null ? null : Math.min(au.plein, aBordL ? (conso > 0 ? aBordBrut / conso * 100 : au.plein) : aBordBrut);
       const g0 = aBord == null ? A : Math.max(0, Math.min(A, aBord - reserve));
       const larg = +$('couloir').value;
       const lkm = conso / 100;
@@ -485,7 +487,8 @@ function rendu(){
       const plan = r.plan;
       utilesPlan = r.utiles || null;
       const voyage = coutVoyage(cand, r, total, lkm);
-      const eco = economieVsMedian(cand, A, total, lkm, voyage, {g0});
+      const eco = economieVsPlusCher(cand, A, total, lkm, voyage, {g0});             // vs le plus cher du couloir
+      const notrePrix = prixMoyen(r, lkm, g0);                                         // €/L reellement paye
       // Le cout depend de la largeur du couloir : plus large, plus de stations pas cheres
       // candidates — mais des detours plus longs. Comparatif sur les memes donnees
       // (chargees a 20 km quoi qu'il arrive).
@@ -540,8 +543,8 @@ function rendu(){
                     : `${cuve} L × ${virg(conso)} L/100`;
       const rappel = el('p', 'heros-rappel',
         `≈ ${Math.round(A)} km utiles (${origine}, réserve ${resv} km) · plan sur ${carbPlan === 'spmin' ? 'SP le moins cher' : (COURT[carbPlan] || 'SP')}` +
-        (aBord != null ? ` · ≈ ${Math.round(aBord)} km à bord au départ (comptés au prix du départ)` : '') +
-        (voyage == null ? '' : aBord != null ? '' : depart ? ' · plein de départ compris' : ' · plein de départ estimé au prix médian'));
+        (aBord != null ? ` · réservoir au départ ≈ ${Math.round(aBord)} km${aBordL ? ` (${aBordBrut} L)` : ''}, compté au prix du départ` : '') +
+        (voyage == null ? '' : aBord != null ? '' : depart ? ' · plein de départ compris' : ' · plein de départ compté au prix de la première étape (aucune station à 15 km)'));
       // Ligne de temps : <ol>, un repere par item (lecteur d'ecran : liste ordonnee).
       const item = (cls, pt, titre, lignes, station) => {
         const li = el('li', cls);
@@ -568,7 +571,7 @@ function rendu(){
       const ligneTemps = () => {
         const ol = el('ol', 'ligne-temps');
         ol.setAttribute('aria-label', 'Étapes du plan');
-        ol.append(item('lt-depart', {plein: true, txt: ''}, aBord != null ? `Départ · ≈ ${Math.round(aBord)} km à bord` : 'Départ · plein',
+        ol.append(item('lt-depart', {plein: true, txt: ''}, aBord != null ? `Départ · réservoir ≈ ${Math.round(aBord)} km${aBordL ? ` (${aBordBrut} L)` : ''}` : 'Départ · plein',
           aBord != null ? [] :
           depart ? [[nomVille(depart.s), ' · km ', String(Math.round(depart.km)), ' · ', ...chipPrix(depart)]]
                  : ['aucune station à moins de 15 km du départ dans ce couloir — partez le réservoir plein'],
@@ -632,9 +635,11 @@ function rendu(){
       };
       const ligneEco = () => {
         if(!eco) return null;
-        if(Math.abs(eco.economie) < 0.05) return el('b', 'eco nulle', `au prix du marché (${litre(eco.median)})`);
+        // Notre prix moyen au litre, puis l'economie contre le plus cher du couloir (Eric, 24/10/2026).
+        const notre = notrePrix != null ? `votre prix ${litre(notrePrix)} · ` : '';
+        if(Math.abs(eco.economie) < 0.05) return el('b', 'eco nulle', `${notre}prix unique dans le couloir (${litre(eco.prix)})`);
         const signe = eco.economie > 0 ? '−' : '+';
-        return el('b', 'eco' + (eco.economie > 0 ? '' : ' nulle'), `${signe}${euros(Math.abs(eco.economie))} vs pleins au prix médian (${litre(eco.median)})`);
+        return el('b', 'eco' + (eco.economie > 0 ? '' : ' nulle'), `${notre}${signe}${euros(Math.abs(eco.economie))} vs pleins au plus cher (${litre(eco.prix)})`);
       };
 
       if(plan === null){
@@ -654,7 +659,7 @@ function rendu(){
       }else if(!plan.length){
         // Etat : aucun arret necessaire.
         heros.push(el('div', 'heros-etat ok', el('b', null, 'Aucun arrêt nécessaire'),
-          ` — ${Math.round(total)} km pour ${Math.round(g0)} km utiles${aBord != null ? ' à bord : ce que vous avez suffit.' : ' : un plein au départ suffit.'}`));
+          ` — ${Math.round(total)} km pour ${Math.round(g0)} km utiles${aBord != null ? ' dans le réservoir au départ : ce que vous avez suffit.' : ' : un plein au départ suffit.'}`));
         heros.push(chiffre());
         heros.push(el('p', 'heros-sous', '0 arrêt · ', ligneEco()));
         heros.push(rappel, ligneTemps());
@@ -671,7 +676,7 @@ function rendu(){
         heros.push(el('p', 'heros-sous', `${plan.length} arrêt${plan.length > 1 ? 's' : ''} · ≈ ${Math.round(tempsTotal)} min · `, ligneEco()));
         heros.push(rappel, ligneTemps(), barres());
         resume = `Plan de pleins : ${plan.length} arrêt${plan.length > 1 ? 's' : ''}${voyage != null ? `, carburant du voyage ${euros(voyage)}` : ''}` +
-                 (eco && Math.abs(eco.economie) >= 0.05 ? `, ${eco.economie > 0 ? 'économie' : 'surcoût'} de ${euros(Math.abs(eco.economie))} par rapport au prix médian` : '') + '.';
+                 (eco && Math.abs(eco.economie) >= 0.05 ? `, ${eco.economie > 0 ? 'économie' : 'surcoût'} de ${euros(Math.abs(eco.economie))} par rapport au plus cher du couloir` : '') + '.';
       }
     }
     elPlan.replaceChildren(...heros);
@@ -1135,6 +1140,9 @@ if(map){
 }
 $('couloir').onchange = () => { reglagesEcrits(); if(ROUTE) rendu(); };
 $('aBord').onchange = () => { if(ROUTE) rendu(); };   // non memorise : propre a chaque depart
+// L'unite (km ou litres), elle, est memorisee : on pense toujours dans la meme.
+if(REGL.aBordUnite === 'l' || REGL.aBordUnite === 'km') $('aBordUnite').value = REGL.aBordUnite;
+$('aBordUnite').onchange = () => { REGL.aBordUnite = $('aBordUnite').value; reglagesBruts(); if(ROUTE) rendu(); };
 $('conso').onchange = $('cuve').onchange = $('autonomie').onchange =
 $('reserve').onchange = () => { reglagesEcrits(); rendu(); };
 ['conso', 'cuve', 'autonomie'].forEach(id => $(id).addEventListener('input', majEstimations));
@@ -1413,7 +1421,8 @@ $('trajetsMemo').onchange = e => {
 };
 // Une saisie a la main annule l'aller-retour venu d'un lien |r ou d'un trajet memorise (la
 // case n'est plus visible : sinon il collait a tous les trajets suivants).
-['depart', 'arrivee'].forEach(id => $(id).addEventListener('input', () => { $('allerRetour').checked = false; majTrajets(); }));
+// Nouveau trajet = nouveau depart : « Réservoir au départ » est remis a zero, la question sera reposee.
+['depart', 'arrivee'].forEach(id => $(id).addEventListener('input', () => { $('allerRetour').checked = false; $('aBord').value = ''; majTrajets(); }));
 $('sansPeage').addEventListener('change', majTrajets);
 $('allerRetour').addEventListener('change', majTrajets);
 window.addEventListener('storage', e => { if(e.key === CLE_TRAJETS) majTrajets(); });
@@ -1488,9 +1497,36 @@ async function itineraire(a, b, sansP){
 }
 const duree = m => { const min = Math.round(m); return min >= 60 ? `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}` : `${min} min`; };
 
+// Au lancement d'un trajet, on demande d'office combien de km on peut encore faire (Eric,
+// 24/10/2026) : Valider remplit « Réservoir au départ », Passer (ou fermer) = plein. Une fois par couple
+// depart/arrivee ; jamais pour un trajet importe par lien, ni sans autonomie connue, ni si
+// « Réservoir au départ » est deja rempli. Le calcul repart a la reponse.
+let ABORD_DEMANDE = null, ABORD_REPONDU = false;
+function demanderABord(){
+  const cle = `${$('depart').value.trim()}|${$('arrivee').value.trim()}`;
+  if(TRAJET_SANS_GESTE || $('aBord').value.trim() !== '' || ABORD_DEMANDE === cle) return false;
+  const v = REGL.vehicules[REGL.vehActif];
+  if(!v || !autonomieUtile(+v.conso, +v.cuve, +v.autonomie, 0)) return false;
+  ABORD_DEMANDE = cle; ABORD_REPONDU = false;
+  $('aBordQkm').value = ''; $('aBordQu').value = $('aBordUnite').value;
+  ouvrirFeuille('aBordQ', $('trajet').querySelector('[type=submit]'));
+  setTimeout(() => $('aBordQkm').focus(), 50);
+  return true;
+}
+$('aBordForm').onsubmit = e => {
+  e.preventDefault(); ABORD_REPONDU = true;
+  $('aBord').value = $('aBordQkm').value.trim();
+  if($('aBordUnite').value !== $('aBordQu').value){ $('aBordUnite').value = $('aBordQu').value; REGL.aBordUnite = $('aBordQu').value; reglagesBruts(); }
+  fermerFeuille(); $('trajet').requestSubmit();
+};
+$('aBordPasser').onclick = () => { ABORD_REPONDU = true; fermerFeuille(); $('trajet').requestSubmit(); };
+document.addEventListener('feuille', e => {   // Echap ou voile valent « Passer »
+  if(e.detail.id === 'aBordQ' && !e.detail.ouverte && !ABORD_REPONDU){ ABORD_REPONDU = true; $('trajet').requestSubmit(); }
+});
 let CALCUL_N = 0;   // deux calculs lances coup sur coup (case puis ⇄) : seul le dernier ecrit
 async function calculerTrajet(ev){
   ev.preventDefault();
+  if(demanderABord()) return;
   const sansGeste = TRAJET_SANS_GESTE; TRAJET_SANS_GESTE = false;
   const mien = ++CALCUL_N;
   infoT.textContent = 'calcul…';
