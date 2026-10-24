@@ -842,7 +842,20 @@ $('veh').onchange = e => {
   appliquerVeh(); reglagesEcrits(); charger();
 };
 $('chipVeh').onclick = () => { appliquerVeh(); ouvrirFeuille('garage', $('chipVeh')); };
+// Le nom se fixe des qu'on quitte le champ (Entree, Tab, clic ailleurs) : avant le
+// 24/10/2026 seul OK le gardait, « Ajouter » ou un changement de vehicule juste apres
+// la saisie le perdait (Eric : « pouvoir nommer le vehicule au cas ou on en ait plusieurs »).
+function fixerNom(){
+  const nom = $('vnom').value.trim();
+  if(!nom || nom === REGL.vehicules[REGL.vehActif].nom) return;
+  reglagesEcrits();                       // synchronise sous le nom courant
+  REGL.vehicules[REGL.vehActif].nom = nom;
+  reglagesBruts();                        // renommage : ecriture directe
+  majSelectVeh(); majChip();
+}
+$('vnom').onchange = fixerNom;
 $('vehPlus').onclick = () => {
+  fixerNom();
   REGL.vehicules.push({nom: 'Véhicule ' + (REGL.vehicules.length + 1), type: 'voiture',
     carbs: DEFAUT.slice(), conso: '', cuve: '', autonomie: '', reserve: ''});
   REGL.vehActif = REGL.vehicules.length - 1;
@@ -1232,6 +1245,19 @@ if(map){
 // Les deux sont publics, sans cle, et autorisent l'appel depuis un fichier local.
 const BAN = 'https://api-adresse.data.gouv.fr/search/';
 const ITI = 'https://data.geopf.fr/navigation/itineraire';
+// Secours, constates le 24/10/2026 (la Geoplateforme repondait 404 sur TOUTES ses ressources
+// d'itineraire, geocodage BAN a 8 s) : geocodage porte par la Geoplateforme (meme format que
+// la BAN), trace Valhalla public de FOSSGIS (OpenStreetMap, Allemagne, sans cle, CORS ouvert).
+// Chaque appel est borne a DELAI : « calcul… » ne reste jamais affiche sans fin.
+const GEOC = 'https://data.geopf.fr/geocodage/search/';
+const ITI_SECOURS = 'https://valhalla1.openstreetmap.de/route';
+const DELAI = 20000;
+let MOTEUR = 'ign';      // moteur du dernier trace reussi : 'ign' ou 'osm' (dit dans l'info trajet)
+async function lireJson(u){
+  const r = await fetch(u, {signal: AbortSignal.timeout(DELAI)});
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
 let ROUTE = null;        // [[lon,lat], …] simplifie ; en aller-retour : aller puis retour (boucle)
 let I_RETOUR = null;     // indice du premier point du retour dans ROUTE (null : aller simple)
 let ALLER_KM = null;     // km de l'arrivee sur la boucle (null : aller simple)
@@ -1244,9 +1270,15 @@ const maPosition = q => !q.trim() || /^ma position$/i.test(q.trim());
 
 async function geocoder(q){
   if(maPosition(q)) return {lon: CENTRE[1], lat: CENTRE[0], label: libelleRepere === 'Ma position' ? 'ma position' : 'le repère'};
-  const r = await fetch(`${BAN}?q=${encodeURIComponent(q)}&limit=1`);
-  if(!r.ok) throw new Error('géocodage indisponible');
-  const j = await r.json();
+  // Geoplateforme d'abord (memes donnees BAN ; mesure le 24/10/2026 : 0,1 s contre 8 a 18 s
+  // pour api-adresse, en cours de migration vers la Geoplateforme), api-adresse en secours.
+  const qs = `?q=${encodeURIComponent(q)}&limit=1`;
+  let j;
+  try{ j = await lireJson(GEOC + qs); }
+  catch(e){
+    try{ j = await lireJson(BAN + qs); }
+    catch(e2){ throw new Error('géocodage indisponible'); }
+  }
   if(!j.features.length) throw new Error(`adresse introuvable : « ${q} »`);
   const f = j.features[0];
   return {lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
@@ -1379,29 +1411,62 @@ function majPilule(){
   $('piluleTxt').textContent = ROUTE && c.arr ? `${c.dep || 'Ma position'} ${c.ar ? '⇄' : '→'} ${c.arr}` : 'Où allez-vous ?';
 }
 
-// Un itineraire IGN entre deux points, simplifie a ~400 points.
-async function itineraire(a, b, sansP){
-  // « Sans péage » : moteur bdtopo-pgr + interdiction des autoroutes (verifie
-  // le 09/08 : la contrainte est IGNOREE par bdtopo-osrm, respectee par pgr).
-  // Approximation assumee : quelques autoroutes gratuites (A75...) sont
-  // evitees aussi.
+// Itineraire IGN entre deux points. « Sans péage » : moteur bdtopo-pgr + interdiction
+// des autoroutes (verifie le 09/08 : la contrainte est IGNOREE par bdtopo-osrm, respectee
+// par pgr). Approximation assumee : quelques autoroutes gratuites (A75...) sont evitees aussi.
+async function itineraireIGN(a, b, sansP){
   const u = `${ITI}?resource=${sansP ? 'bdtopo-pgr' : 'bdtopo-osrm'}&profile=car&optimization=fastest`+
             `&start=${a.lon},${a.lat}&end=${b.lon},${b.lat}&geometryFormat=geojson`+
             (sansP ? `&constraints=${encodeURIComponent('{"constraintType":"banned","key":"wayType","operator":"=","value":"autoroute"}')}` : '');
-  const r = await fetch(u);
-  if(!r.ok) throw new Error('calcul d\'itinéraire indisponible');
-  const j = await r.json();
-  const pts = j.geometry.coordinates;
+  const j = await lireJson(u);
+  return {pts: j.geometry.coordinates, distance: j.distance, duration: j.duration};
+}
+// Polyline « Google » a precision 6 (format de Valhalla) → [[lon, lat], …].
+function decoderPolyline6(s){
+  const pts = []; let i = 0, lat = 0, lon = 0;
+  while(i < s.length){
+    for(const k of [0, 1]){
+      let res = 0, dec = 0, b;
+      do{ b = s.charCodeAt(i++) - 63; res |= (b & 0x1f) << dec; dec += 5; }while(b >= 0x20);
+      const d = (res & 1) ? ~(res >> 1) : (res >> 1);
+      if(k === 0) lat += d; else lon += d;
+    }
+    pts.push([lon / 1e6, lat / 1e6]);
+  }
+  return pts;
+}
+// Itineraire de secours (Valhalla/OSM). « Sans péage » y est une vraie exclusion des
+// troncons a peage, pas l'approximation « sans autoroute » de l'IGN.
+async function itineraireSecours(a, b, sansP){
+  const q = {locations: [{lat: a.lat, lon: a.lon}, {lat: b.lat, lon: b.lon}], costing: 'auto', units: 'kilometers'};
+  if(sansP) q.costing_options = {auto: {use_tolls: 0, exclude_tolls: true}};
+  const j = await lireJson(`${ITI_SECOURS}?json=${encodeURIComponent(JSON.stringify(q))}`);
+  const t = j.trip;
+  if(!t || !t.legs || !t.legs.length) throw new Error('tracé de secours vide');
+  return {pts: t.legs.flatMap(l => decoderPolyline6(l.shape)),
+          distance: t.summary.length * 1000, duration: t.summary.time};
+}
+// Un itineraire entre deux points (IGN, sinon secours), simplifie a ~400 points.
+async function itineraire(a, b, sansP){
+  let brut;
+  try{ brut = await itineraireIGN(a, b, sansP); MOTEUR = 'ign'; }
+  catch(e){
+    try{ brut = await itineraireSecours(a, b, sansP); MOTEUR = 'osm'; }
+    catch(e2){ throw new Error('calcul d\'itinéraire indisponible (IGN et secours)'); }
+  }
+  const pts = brut.pts;
   const pas = Math.max(1, Math.round(pts.length/400));   // ~400 points suffisent
   const sim = pts.filter((_, i) => i % pas === 0);
   if(sim[sim.length-1] !== pts[pts.length-1]) sim.push(pts[pts.length-1]);
-  return {pts: sim, distance: j.distance, duration: j.duration};
+  return {pts: sim, distance: brut.distance, duration: brut.duration};
 }
 const duree = min => min >= 60 ? `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, '0')}` : `${Math.round(min)} min`;
 
+let CALCUL_N = 0;   // deux calculs lances coup sur coup (case puis ⇄) : seul le dernier ecrit
 async function calculerTrajet(ev){
   ev.preventDefault();
   const sansGeste = TRAJET_SANS_GESTE; TRAJET_SANS_GESTE = false;
+  const mien = ++CALCUL_N;
   infoT.textContent = 'calcul…';
   try{
     const [a, b] = await Promise.all([
@@ -1412,6 +1477,7 @@ async function calculerTrajet(ev){
     // contraintes) ; ROUTE = aller puis retour, KMS continue, le total est la boucle.
     const aller = await itineraire(a, b, sansP);
     const retour = ar ? await itineraire(b, a, sansP) : null;
+    if(mien !== CALCUL_N) return;   // un calcul plus recent est en cours : celui-ci est perime
     let pts = aller.pts, iRetour = null;
     if(retour){ iRetour = pts.length; pts = pts.concat(retour.pts); }
     ROUTE = pts; I_RETOUR = iRetour; ROUTE_AR = !!retour;
@@ -1438,13 +1504,15 @@ async function calculerTrajet(ev){
       CARTE.cadrer({s, n, w, e}, pad, !sansGeste);
     }
     infoT.textContent = `${Math.round(TRAJET.km)} km · ${duree(TRAJET.min)}`+
-      `${sansP ? ' · sans autoroute' : ''}${ar ? ' · aller-retour' : ''} · ${a.label} ${ar ? '⇄' : '→'} ${b.label}`;
+      `${sansP ? (MOTEUR === 'osm' ? ' · sans péage' : ' · sans autoroute') : ''}${ar ? ' · aller-retour' : ''}`+
+      ` · ${a.label} ${ar ? '⇄' : '→'} ${b.label}${MOTEUR === 'osm' ? ' · tracé OpenStreetMap (IGN muette)' : ''}`;
     $('effacer').hidden = false;
     majTrajets(); majPilule();
     replierStations(true);
     if(MOBILE.matches){ rechercheOuverte(false); deplier('moitie'); }
     charger();
   }catch(e){
+    if(mien !== CALCUL_N) return;
     infoT.textContent = e.message;
     if(sansGeste) charger();   // trajet importe injoignable : les prix autour de soi, au moins
   }
@@ -1491,7 +1559,6 @@ if(REGL.sansCher === false) $('sansCher').checked = false;
 if(REGL.couloir) $('couloir').value = REGL.couloir;
 if(REGL.queUtiles === false) $('queUtiles').checked = false;
 if(REGL.sansPeage) $('sansPeage').checked = true;
-if(REGL.allerRetour && !TRAJET_IMPORT) $('allerRetour').checked = true;
 appliquerVeh();
 appliquerTheme();
 majFonds();

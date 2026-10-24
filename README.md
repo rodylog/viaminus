@@ -23,10 +23,11 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   (départ, étapes avec « Y aller », arrivée, retour), mini-barres par couloir
   (toucher une barre change le couloir), états dessinés (infaisable avec trois
   remèdes, aucun arrêt nécessaire, véhicule à compléter).
-- **Aller-retour** : case du formulaire ; le retour est un second itinéraire IGN,
+- **Aller-retour** : plus de case au formulaire depuis le 24/10/2026 (la flèche ⇄
+  inverse départ et arrivée, c'est le geste retenu) ; le mécanisme reste pour les
+  liens `#trajet=…|r` et les trajets mémorisés : le retour est un second itinéraire,
   le plan couvre la boucle (une station proche des deux sens compte deux fois),
-  le plein du retour devient une étape, le tracé montre l'aller et le retour,
-  les trajets mémorisés retiennent l'option (« Paris ⇄ Lyon »).
+  le plein du retour devient une étape, le tracé montre l'aller et le retour.
 - **Partage du plan** : `fuelpilot.html#trajet=<départ>|<arrivée>|<couloir>|<options>&veh=…`
   — départ et arrivée tels que saisis (`encodeURIComponent` ; départ vide =
   « Ma position », jamais une coordonnée), couloir ∈ {1, 2, 5, 10, 20}, options
@@ -46,7 +47,12 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
 - **Itinéraire** : géocodage Base Adresse Nationale + tracé Géoplateforme IGN,
   option **sans péage** (moteur `bdtopo-pgr`, autoroutes exclues), couloir
   1-20 km, les stations suivent le zoom ; flèche **⇄** entre les deux champs pour
-  inverser départ et arrivée (trajet retour recalculé d'un clic).
+  inverser départ et arrivée (trajet retour recalculé d'un clic). **Secours**
+  (24/10/2026 : la Géoplateforme répondait 404 sur tout itinéraire) : chaque appel
+  est borné à 20 s ; géocodage Géoplateforme si la BAN se tait, tracé Valhalla
+  public de FOSSGIS (OpenStreetMap, sans clé, CORS ouvert) si l'IGN se tait —
+  là, « sans péage » exclut vraiment les péages ; la ligne du trajet signale
+  « tracé OpenStreetMap (IGN muette) ».
 - **Sécurité** : toute chaîne venue de l'extérieur (flux des stations, URL `#veh=`,
   `#trajet=`) est échappée à l'ingestion ou rendue en texte (jamais en HTML) ; Content-Security-Policy calculée à la génération
   (scripts autorisés par empreinte SHA-256, pas d'`unsafe-inline`, `connect-src`

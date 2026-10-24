@@ -107,7 +107,8 @@ def csp_meta(html):
     des navigateurs sans worker-src) ; tuiles vectorielles, glyphes et sprites IGN
     sont charges en fetch (connect-src data.geopf.fr), tout comme les tuiles raster
     (orthophoto IGN, OpenStreetMap en secours) : d'ou tile.openstreetmap.org dans
-    connect-src, en plus d'img-src.
+    connect-src, en plus d'img-src. valhalla1.openstreetmap.de : itineraire de
+    secours (FOSSGIS) quand la Geoplateforme ne repond pas (vu le 24/10/2026).
     Une chaine tierce (flux des stations, URL #veh=) qui reussirait malgre
     l'echappement a injecter un <script> ne s'executerait pas, et ne pourrait
     rien exfiltrer ailleurs que vers ces hotes."""
@@ -122,7 +123,8 @@ def csp_meta(html):
             "style-src 'unsafe-inline'; "
             "img-src 'self' data: blob: https://data.geopf.fr https://tile.openstreetmap.org; "
             "connect-src 'self' https://data.economie.gouv.fr https://data.geopf.fr "
-            "https://api-adresse.data.gouv.fr https://tile.openstreetmap.org; "
+            "https://api-adresse.data.gouv.fr https://tile.openstreetmap.org "
+            "https://valhalla1.openstreetmap.de; "
             "base-uri 'none'; form-action 'self'\">")
 
 

@@ -47,7 +47,9 @@ __APP_CSS__
             </select>
           </label>
           <label class="case"><input type="checkbox" id="sansPeage"> Sans péage</label>
-          <label class="case"><input type="checkbox" id="allerRetour"> Aller-retour</label>
+          <!-- Aller-retour : case retirée du formulaire le 24/10/2026 (Eric : « juste une double flèche
+               pour inverser ») ; l'entrée reste, cachée, pour les liens #trajet=…|r et les trajets mémorisés. -->
+          <input type="checkbox" id="allerRetour" hidden>
           <select id="trajetsMemo" class="ctl" aria-label="Trajets mémorisés" hidden></select>
         </div>
         <div class="ligne">
@@ -61,6 +63,7 @@ __APP_CSS__
     <button class="chip" id="chipVeh" type="button" aria-haspopup="dialog" title="Garage : véhicule, carburants, autonomie">
       <span id="chipIco" class="chip-ico"></span>
       <span class="chip-txt"><span id="chipNom">Véhicule</span><span id="chipCarb" class="chip-carb"></span></span>
+      <span data-ico="crayon" class="chip-crayon"></span>
     </button>
   </div>
 
@@ -161,7 +164,7 @@ __APP_CSS__
     <p id="garageMsg" class="msg" role="status" aria-live="polite"></p>
     <div id="fiche" class="fiche">
       <div class="ligne">
-        <label class="ctl">Nom <input id="vnom" placeholder="Ma voiture"></label>
+        <label class="ctl"><span data-ico="crayon"></span> Nom <input id="vnom" placeholder="Ma voiture"></label>
         <label class="ctl">Type
           <select id="vtype">
             <option value="voiture">Voiture</option>
@@ -323,16 +326,15 @@ __APP_CSS__
         appareil. Appui long ou clic droit sur la carte pour le poser ; menu Position dans les options ;
         <code>#pos=lat,lon</code> par l'URL. Les distances partent de là.</li>
       <li><b>Itinéraire</b> : adresses géocodées sur la Base Adresse Nationale, tracé Géoplateforme IGN, option sans
-        péage ; seules les stations du couloir choisi (1 à 20 km) restent affichées, le couloir bornant le détour
-        acceptable. La flèche ⇄ échange départ et arrivée (trajet retour).</li>
+        péage ; si l'IGN ne répond pas, tracé OpenStreetMap (Valhalla) et la ligne du trajet le dit. Seules les
+        stations du couloir choisi (1 à 20 km) restent affichées, le couloir bornant le détour acceptable. La
+        flèche ⇄ échange départ et arrivée (trajet retour).</li>
       <li><b>Plan de pleins</b> : avec la conso et l'autonomie d'un plein (ou le réservoir) de la fiche véhicule, la
         page dit où faire le plein — plein au départ, arrêts choisis au moins cher dans le couloir en comptant les
         détours en carburant et en minutes, plein à l'arrivée, en gardant la réserve choisie (en km, comprise dans l'autonomie d'un plein). Le
         chiffre-héros est le carburant du voyage, plein de départ compris ; l'économie se mesure contre les mêmes
         arrêts possibles « au prix médian » du couloir. Les mini-barres comparent les couloirs : toucher une barre
         change le couloir.</li>
-      <li><b>Aller-retour</b> : la case du formulaire ajoute le retour (second itinéraire, même moteur) ; le plan
-        couvre la boucle, le plein du retour devient une étape, les trajets mémorisés le retiennent (⇄).</li>
       <li><b>Partager</b> : « Partager le plan » donne un lien <code>#trajet=départ|arrivée|couloir|options&amp;veh=…</code>
         (départ vide = « Ma position », jamais une coordonnée) ; la fiche véhicule se partage par <code>#veh=…</code>.</li>
       <li><b>Assistant</b> : au premier lancement, trois écrans (véhicule, position, c'est prêt) ; la conso peut
@@ -345,10 +347,11 @@ __APP_CSS__
         (Licence Ouverte) — mêmes données que prix-carburants.gouv.fr.</li>
       <li>Fond de carte : Plan IGN et orthophotos © IGN — Géoplateforme ; OpenStreetMap (© les contributeurs)
         en secours seulement si l'IGN ne répond pas.</li>
-      <li>Itinéraires : Géoplateforme IGN. Géocodage : Base Adresse Nationale.</li>
+      <li>Itinéraires : Géoplateforme IGN ; en secours, Valhalla public de FOSSGIS e.V. (données
+        OpenStreetMap). Géocodage : Base Adresse Nationale ; en secours, géocodage Géoplateforme.</li>
       <li>Bibliothèques : <a href="https://maplibre.org" target="_blank" rel="noopener">MapLibre GL JS</a> (BSD-3),
         icônes <a href="https://lucide.dev" target="_blank" rel="noopener">Lucide</a> (MIT). Code ViaMinus : MIT.
-        Aucun serveur, aucun compte, aucun traqueur : la page ne parle qu'à ces trois services publics.</li>
+        Aucun serveur, aucun compte, aucun traqueur : la page ne parle qu'à ces services publics.</li>
     </ul>
   </section>
 </div>
