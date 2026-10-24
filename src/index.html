@@ -184,7 +184,7 @@ __APP_CSS__
       <div class="ligne">
         <label class="ctl" title="Facultatif si l'autonomie est renseignée">ou réservoir
           <input id="cuve" type="number" step="1" min="10" max="150" placeholder="50" inputmode="numeric"> L</label>
-        <label class="ctl">Réserve
+        <label class="ctl" title="Comprise dans l'autonomie d'un plein : le plan ne l'entame jamais">dont réserve
           <input id="reserve" type="number" step="5" min="0" max="200" placeholder="30" inputmode="numeric"> km</label>
       </div>
       <p class="note">Aucune source ouverte ne donne la capacité du réservoir : l'autonomie, que vous connaissez
@@ -227,7 +227,7 @@ __APP_CSS__
       <p id="asConsoSource" class="note" aria-live="polite"></p>
       <div class="ligne">
         <label class="ctl">Réservoir (facultatif) <input id="asCuve" type="number" step="1" min="10" max="150" placeholder="50" inputmode="numeric"> L</label>
-        <label class="ctl">Réserve <input id="asReserve" type="number" step="5" min="0" max="200" value="30" inputmode="numeric"> km</label>
+        <label class="ctl" title="Comprise dans l'autonomie d'un plein : le plan ne l'entame jamais">dont réserve <input id="asReserve" type="number" step="5" min="0" max="200" value="30" inputmode="numeric"> km</label>
       </div>
       <p id="asErreur" class="erreur" role="alert"></p>
       <div class="actions">
@@ -327,7 +327,7 @@ __APP_CSS__
         acceptable. La flèche ⇄ échange départ et arrivée (trajet retour).</li>
       <li><b>Plan de pleins</b> : avec la conso et l'autonomie d'un plein (ou le réservoir) de la fiche véhicule, la
         page dit où faire le plein — plein au départ, arrêts choisis au moins cher dans le couloir en comptant les
-        détours en carburant et en minutes, plein à l'arrivée, en gardant la réserve choisie (en km). Le
+        détours en carburant et en minutes, plein à l'arrivée, en gardant la réserve choisie (en km, comprise dans l'autonomie d'un plein). Le
         chiffre-héros est le carburant du voyage, plein de départ compris ; l'économie se mesure contre les mêmes
         arrêts possibles « au prix médian » du couloir. Les mini-barres comparent les couloirs : toucher une barre
         change le couloir.</li>

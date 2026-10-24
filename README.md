@@ -9,7 +9,7 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   (déclaration obligatoire des stations, mise à jour ~10 min), rechargé à chaque
   ouverture et à chaque déplacement de la carte.
 - **Garage multi-véhicules** : chaque véhicule a sa fiche (carburants, conso,
-  autonomie d'un plein en km — ou réservoir —, réserve en km), mémorisée dans le
+  autonomie d'un plein en km — ou réservoir —, dont réserve en km), mémorisée dans le
   navigateur. Aucune source ouverte ne donne la capacité du réservoir (vérifié le
   17/09/2026) : l'autonomie, que l'on connaît ou que la voiture affiche, prime.
   Import/partage d'une fiche par l'URL : `fuelpilot.html#veh=Nom|e85+e10|6.5|50|30`
@@ -67,6 +67,12 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   (orthophoto en option), mode sombre automatique ou choisi, transformé côté
   client. « Y aller » ouvre l'application de navigation choisie au premier usage
   (lien `geo:`, Magic Earth, OsmAnd, Google Maps, Waze, OpenStreetMap).
+
+## Mode d'emploi
+
+`docs/guide.html` : page autonome « comment l'utiliser et le partager » (chapeau chiffré sur le
+flux officiel, QR code, bouton Partager, calcul du plan, questions fréquentes), publiée avec
+l'application à `/guide.html`.
 
 ## Usage
 

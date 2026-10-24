@@ -75,12 +75,18 @@ function creerAssistant(ctx){
     const premier = $('asEcran' + n).querySelector('input:not([type=checkbox]), button');
     (premier || $('asTitre')).focus({preventScroll: true});
   }
-  // Ecran 1 -> fiche vehicule (celle du vehicule actif) ; au moins un carburant.
-  function enregistrer(){
-    const carbs = carbsChoisis();
-    if(!carbs.length){ $('asErreur').textContent = 'Choisissez au moins un carburant.'; $('asCarbs').querySelector('input').focus(); return false; }
-    $('asErreur').textContent = '';
+  // Ecran 1 -> fiche vehicule (celle du vehicule actif). strict (bouton Suivant) : au
+  // moins un carburant, sinon message. Non strict (Passer, Echap, voile) : ce qui a ete
+  // saisi est garde tel quel — refaire la fiche est fastidieux (Eric, 24/10/2026) —, les
+  // carburants deja connus de la fiche servant si aucun n'est coche.
+  function enregistrer(strict = true){
+    let carbs = carbsChoisis();
     const v = REGL.vehicules[REGL.vehActif];
+    if(!carbs.length){
+      if(strict){ $('asErreur').textContent = 'Choisissez au moins un carburant.'; $('asCarbs').querySelector('input').focus(); return false; }
+      carbs = (v.carbs || []).slice();
+    }
+    $('asErreur').textContent = '';
     const cat = (CATEGORIES_CONSO[etat.type] || []).find(c => c[0] === etat.cat);
     if(!v.nom || /^Véhicule \d+$/.test(v.nom)) v.nom = cat && CATEGORIES_CONSO[etat.type].length > 1 ? cat[1] : LIBELLE_TYPE[etat.type];
     Object.assign(v, {type: etat.type, cat: etat.cat, carbs, conso: $('asConso').value, cuve: $('asCuve').value,
@@ -134,11 +140,16 @@ function creerAssistant(ctx){
   $('asFin').onclick = terminer;
   $('asOuAllez').onclick = () => { terminer(); rechercheOuverte(true); if(!MOBILE.matches) $('arrivee').focus(); };
   $('asPasser').onclick = terminer;
+  // Quitter l'ecran 1 sans « Suivant » (Passer, Echap, voile) ne perd rien : la saisie
+  // entamee (carburant, autonomie, conso ou reservoir) est enregistree sans message.
+  const saisieEcran1 = () => ecran === 1 && !!(carbsChoisis().length || $('asAutonomie').value || $('asConso').value || $('asCuve').value);
   // Echap ou voile : vaut « Passer ».
   document.addEventListener('feuille', e => {
     if(e.detail.id !== 'assistant') return;
     ouvert = e.detail.ouverte;
-    if(!ouvert && !REGL.assistantVu){ REGL.assistantVu = true; reglagesBruts(); }
+    if(ouvert) return;
+    if(saisieEcran1()) enregistrer(false);
+    if(!REGL.assistantVu){ REGL.assistantVu = true; reglagesBruts(); }
   });
 
   // ouvrir(vehicule, ecran) : pre-rempli d'apres la fiche donnee (garage) ; sinon vide.
