@@ -88,7 +88,8 @@ function creerAssistant(ctx){
     }
     $('asErreur').textContent = '';
     const cat = (CATEGORIES_CONSO[etat.type] || []).find(c => c[0] === etat.cat);
-    if(!v.nom || /^Véhicule \d+$/.test(v.nom)) v.nom = cat && CATEGORIES_CONSO[etat.type].length > 1 ? cat[1] : LIBELLE_TYPE[etat.type];
+    if(!v.nom || /^Véhicule \d+$/.test(v.nom))
+      v.nom = nomLibre(cat && CATEGORIES_CONSO[etat.type].length > 1 ? cat[1] : LIBELLE_TYPE[etat.type], REGL.vehicules.indexOf(v));
     Object.assign(v, {type: etat.type, cat: etat.cat, carbs, conso: $('asConso').value, cuve: $('asCuve').value,
                       autonomie: $('asAutonomie').value, reserve: $('asReserve').value,
                       consoEstimee: !!(etat.estime && String($('asConso').value) === String(etat.estime.conso))});
@@ -126,11 +127,12 @@ function creerAssistant(ctx){
   // Ecran 3 : ce que le plan utilisera.
   function resumer(){
     const v = REGL.vehicules[REGL.vehActif];
-    const au = autonomieUtile(+v.conso, +v.cuve, +v.autonomie, +v.reserve || 30);
+    const resv = v.reserve === '' || v.reserve == null ? 30 : Math.max(0, +v.reserve || 0);   // « 0 » vaut 0
+    const au = autonomieUtile(+v.conso, +v.cuve, +v.autonomie, resv);
     const li = [];
     const l = (txt, b) => { const e = document.createElement('li'); if(b){ const s = document.createElement('b'); s.textContent = b; e.append(s, ' '); } e.append(txt); li.push(e); };
     l(`— ${v.nom} (${LIBELLE_TYPE[v.type] || 'véhicule'}), ${v.carbs.map(k => (CASES.find(c => c[0] === k) || [k, k])[1]).join(' + ')}`, 'Véhicule');
-    if(au) l(`utiles (réserve ${+v.reserve || 30} km déduite${au.source === 'autonomie' ? '' : `, ${v.cuve} L × ${String(v.conso).replace('.', ',')} L/100`})`, `≈ ${Math.round(au.A)} km`);
+    if(au) l(`utiles (réserve ${resv} km déduite${au.source === 'autonomie' ? '' : `, ${v.cuve} L × ${String(v.conso).replace('.', ',')} L/100`})`, `≈ ${Math.round(au.A)} km`);
     else l('autonomie d\'un plein ou réservoir à renseigner dans le garage pour situer les arrêts.', 'Autonomie inconnue :');
     if(+v.conso > 0) l(`L/100 km${v.consoEstimee ? ` — estimée (${etat.estime ? etat.estime.source : 'table embarquée'}), modifiable dans le garage` : ' — saisie'}`, String(v.conso).replace('.', ','));
     else l('à renseigner (ou à estimer) dans le garage pour chiffrer le voyage en euros.', 'Conso inconnue :');
@@ -159,7 +161,7 @@ function creerAssistant(ctx){
       $('asCarbs').querySelectorAll('input').forEach(i => i.checked = (v.carbs || []).includes(i.value));
       $('asHybride').checked = !!v.hybride;
       $('asAutonomie').value = v.autonomie || ''; $('asConso').value = v.conso || '';
-      $('asCuve').value = v.cuve || ''; $('asReserve').value = v.reserve || 30;
+      $('asCuve').value = v.cuve || ''; $('asReserve').value = v.reserve === '' || v.reserve == null ? 30 : v.reserve;
       etat.estime = null; modeConso(false); $('asConsoSource').textContent = '';
     }else if(!n){
       choisirType('voiture', 'citadine');

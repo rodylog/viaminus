@@ -171,6 +171,26 @@ test('economie positive quand une station moins chere est sur le trajet (cas Tou
   assert.ok(presque(eco.economie, 1.45) && presque(eco.reference, 59.4));
 });
 
+// ---- g0 : carburant a bord au depart (Eric, 24/10/2026) ----
+
+test('a bord au depart : plein en route si moins cher qu\'au depart, et seulement le manque', () => {
+  // A 400, g0 200, total 300 : il manque 100 km. D (km 5, 1.00) ou S (km 150, 0.80) :
+  // S, juste 100 km = 80 ; a D ce serait 100. Les 200 km a bord comptent au prix du depart.
+  const D = st('D', 5, 1.00), S = st('S', 150, 0.80);
+  const r = optimiserPlan([D, S], 400, 300, 1, {g0: 200});
+  assert.deepStrictEqual(r.plan.map(e => [e.s, e.plein, e.q]), [['S', false, 100]]);
+  assert.ok(presque(r.plan[0].arrivee, 50));
+  assert.ok(presque(r.voyage, 1.00 * 200 + 80));
+  // Station du depart moins chere que la route : on y achete le manque (arrive avec 195).
+  const r2 = optimiserPlan([D, st('S', 150, 1.20)], 400, 300, 1, {g0: 200});
+  assert.deepStrictEqual(r2.plan.map(e => [e.s, e.q]), [['D', 100]]);
+});
+
+test('a bord suffisant : aucun arret ; insuffisant pour la premiere station : infaisable', () => {
+  assert.deepStrictEqual(optimiserPlan([st('D', 5, 1)], 400, 150, 1, {g0: 200}).plan, []);
+  assert.deepStrictEqual(optimiserPlan([st('S', 150, 1)], 400, 300, 1, {g0: 100}), {plan: null});
+});
+
 test('economie : infaisable ou voyage non chiffrable -> null', () => {
   assert.strictEqual(economieVsMedian([], 100, 150, 1, null), null);
   assert.strictEqual(economieVsMedian([st('S', 5, 1)], 100, 150, 1, 10), null);   // infaisable a la mediane

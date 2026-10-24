@@ -46,8 +46,12 @@ function optimiserPlan(candTous, A, total, lkm, opts = {}){
   const cand = elaguer(candTous, total);
   const n = cand.length, FIN = n;
   const pd = opts.pd != null ? opts.pd : (prixBout(candTous, c => c.km <= 15) ?? prixMedian(candTous));
-  if(total <= A) return {plan: [], coutAchats: 0, voyage: pd == null ? null : pd * lkm * total,
-                         reste: A - total, utiles: new Set()};
+  // g0 : carburant a bord au depart (km utiles) ; defaut A = on part le plein fait. S'il est
+  // plus bas, la station du depart n'est qu'un candidat parmi d'autres : le plan y fait le
+  // plein seulement si c'est moins cher qu'en route (Eric, 24/10/2026).
+  const g0 = Math.max(0, Math.min(A, opts.g0 != null ? opts.g0 : A));
+  if(total <= g0) return {plan: [], coutAchats: 0, voyage: pd == null ? null : pd * lkm * total,
+                          reste: g0 - total, utiles: new Set()};
   const km = i => i < 0 ? 0 : i >= n ? total : cand[i].km;
   const ex = i => (i < 0 || i >= n) ? 0 : cand[i].e;
   const leg = (j, i) => km(i) - km(j) + ex(j) + ex(i);
@@ -62,9 +66,9 @@ function optimiserPlan(candTous, A, total, lkm, opts = {}){
   // etat courant en j : {g: carburant a l'arrivee, c: cout, cle: 'v' | s+1}
   const etats = j => {
     const l = [];
-    if(j < 0) return [{g: A, c: 0, cle: 'd'}];
+    if(j < 0) return [{g: g0, c: 0, cle: 'd'}];
     if(vide[j] < INF) l.push({g: 0, c: vide[j], cle: 'v'});
-    plein[j].forEach((c, s1) => { if(c < INF) l.push({g: A - leg(s1 - 1, j), c, cle: s1}); });
+    plein[j].forEach((c, s1) => { if(c < INF) l.push({g: (s1 === 0 ? g0 : A) - leg(s1 - 1, j), c, cle: s1}); });
     return l;
   };
   const transitions = (j, g, c, cle, sur) => {
@@ -73,7 +77,7 @@ function optimiserPlan(candTous, A, total, lkm, opts = {}){
       if(km(k) - km(j) > A) break;
       const L = leg(j, k);
       if(L > A) continue;
-      if(j < 0){ sur(k, c, 'depart', 0, A - L); continue; }   // le plein de depart emmene jusqu'en k
+      if(j < 0){ if(L <= g) sur(k, c, 'depart', 0, g - L); continue; }   // le carburant du depart emmene jusqu'en k
       const p = cand[j].p;
       const qJ = L - g;                                        // juste ce qu'il faut
       if(qJ > 1e-9) sur(k, c + p * lkm * qJ + ARRET, 'juste', qJ, 0);
@@ -101,15 +105,15 @@ function optimiserPlan(candTous, A, total, lkm, opts = {}){
   let cur = finPred, g = finReste, kSuiv = FIN;
   while(cur && cur.j >= 0){
     const j = cur.j;
-    const arrivee = cur.cle === 'v' ? 0 : A - leg(cur.cle - 1, j);
+    const arrivee = cur.cle === 'v' ? 0 : (cur.cle === 0 ? g0 : A) - leg(cur.cle - 1, j);
     plan.unshift(Object.assign({}, cand[j], {q: cur.q, litres: cur.q * lkm, plein: cur.mode === 'plein', arrivee}));
     cur = cur.cle === 'v' ? pVide[j] : pPlein[j][cur.cle];
     kSuiv = j;
   }
   const coutAchats = plan.reduce((t, e) => t + e.p * lkm * e.q, 0);
-  // Carburant consomme : le plein de depart (A km, consomme en entier des qu'il y a un
-  // arret) puis les achats, tous consommes (le dernier est « juste »).
-  const voyage = pd == null ? null : pd * lkm * A + coutAchats;
+  // Carburant consomme : celui du depart (g0 km, compte au prix du depart, consomme en
+  // entier des qu'il y a un arret) puis les achats, tous consommes (le dernier est « juste »).
+  const voyage = pd == null ? null : pd * lkm * g0 + coutAchats;
   const r = {plan, coutAchats, voyage, reste: finReste};
   if(!opts.utiles) return r;
   // Passe arriere : cout optimal de chaque etat jusqu'a l'arrivee ; utile = station par
@@ -126,7 +130,7 @@ function optimiserPlan(candTous, A, total, lkm, opts = {}){
   };
   for(let j = n - 1; j >= 0; j--){
     bVide[j] = arriere(j, 0);
-    for(let s1 = 0; s1 <= j; s1++){ const L = leg(s1 - 1, j); if(L <= A) bPlein[j][s1] = arriere(j, A - L); }
+    for(let s1 = 0; s1 <= j; s1++){ const L = leg(s1 - 1, j), G = s1 === 0 ? g0 : A; if(L <= G) bPlein[j][s1] = arriere(j, G - L); }
   }
   const utiles = new Set(plan.map(e => e.s));
   for(let i = 0; i < n; i++){
@@ -183,10 +187,10 @@ function prixMedian(cand){
 // les detours et la penalite d'arret : c'est ce que paierait un conducteur qui s'arrete
 // « n'importe ou » dans le couloir. voyage = voyage reel (null -> null). Renvoie
 // {economie, median, reference}, ou null si infaisable ou non chiffrable.
-function economieVsMedian(cand, A, total, lkm, voyage){
+function economieVsMedian(cand, A, total, lkm, voyage, opts = {}){
   const median = prixMedian(cand);
   if(median == null || voyage == null) return null;
-  const rm = optimiserPlan(cand.map(c => Object.assign({}, c, {p: median})), A, total, lkm, {pd: median});
+  const rm = optimiserPlan(cand.map(c => Object.assign({}, c, {p: median})), A, total, lkm, {pd: median, g0: opts.g0});
   if(rm.plan === null || rm.voyage == null) return null;
   return {economie: rm.voyage - voyage, median, reference: rm.voyage};
 }

@@ -22,7 +22,9 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   facturés en carburant ET en minutes. L'ancien modèle facturait à chaque arrêt
   tout le reste du trajet et poussait vers une station tardive et chère
   (Montpellier → Tours : Gannat 0,879 au lieu de Vic-le-Comte 0,859). Chaque
-  étape affiche les litres à prendre et le carburant à bord. Carte-héros : le **carburant du
+  étape affiche les litres à prendre et le carburant à bord. Champ **À bord**
+  (km restants au départ, facultatif, non mémorisé) : le plan ne fait le plein
+  au départ que s'il y est moins cher qu'en route. Carte-héros : le **carburant du
   voyage** en chiffre (plein de départ compris), « 2 arrêts · ≈ 14 min · −6,40 €
   vs pleins au prix médian » (référence = le même calcul sur les mêmes stations,
   tous les prix remplacés par la médiane du couloir), ligne de temps verticale

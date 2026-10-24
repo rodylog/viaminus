@@ -93,6 +93,8 @@
   /* Crayon : dit que le nom se modifie (Eric, 24/10/2026) — meme signe devant le champ Nom du garage. */
   .chip-crayon{flex:none;color:var(--muted);margin-left:2px}
   .chip-crayon .ico{width:14px;height:14px}
+  /* iOS zoome sur un champ sous 16 px au focus : au doigt, les champs passent a 16 px (revue 24/10/2026). */
+  @media (pointer:coarse){ input,select,textarea{font-size:16px} }
 
   /* Boutons ronds a droite */
   .boutons-carte{position:absolute;right:12px;top:calc(72px + var(--pad-haut));z-index:15;
