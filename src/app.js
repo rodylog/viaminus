@@ -472,7 +472,7 @@ function rendu(){
       });
       candTous.sort((a,b) => a.km - b.km);
       const cand = candTous.filter(c => c.e <= larg);
-      const r = optimiserPlan(cand, A, total, lkm);
+      const r = optimiserPlan(cand, A, total, lkm, {utiles: true});
       const plan = r.plan;
       utilesPlan = r.utiles || null;
       const voyage = coutVoyage(cand, r, total, lkm);
@@ -548,11 +548,13 @@ function rendu(){
         return li;
       };
       const nomVille = s => brut(s.ville);
-      // Autonomie restante estimee a un km donne : plein au dernier plein (depart compris).
+      // Carburant a bord a un km donne, reserve comprise : plein au depart puis, apres chaque
+      // arret, ce qui y etait en arrivant + ce qui y a ete achete (« juste » ou plein).
+      const reserve = au.plein - A;
       const restante = km => {
         const avant = (plan || []).filter(e => e.km <= km);
-        const dernier = avant.length ? avant[avant.length - 1] : null;
-        return Math.round(au.plein - (km - (dernier ? dernier.km : 0)) - (dernier ? dernier.e : 0));
+        const d = avant.length ? avant[avant.length - 1] : null;
+        return Math.round(reserve + (d ? d.arrivee + d.q - d.e - (km - d.km) : A - km));
       };
       const ligneTemps = () => {
         const ol = el('ol', 'ligne-temps');
@@ -566,6 +568,7 @@ function rendu(){
           if(e.km < de || e.km >= a) return;
           ol.append(item('lt-etape', {txt: String(i + 1)}, `Étape ${i + 1} — ${nomVille(e.s)}`,
             [[`km ${Math.round(e.km)} · `, ...chipPrix(e)],
+             `${e.plein ? 'le plein' : 'juste ce qu\'il faut'} : ≈ ${Math.round(e.litres)} L (${euros(e.p * lkm * e.q)}) · à bord en arrivant ≈ ${Math.round(e.arrivee + reserve)} km`,
              `détour ${(2 * e.e).toFixed(1).replace('.', ',')} km (+${euros(2 * e.e * lkm * e.p)}) · ≈ ${Math.round(minutes(e))} min`],
             e.s));
         });

@@ -1,260 +1,177 @@
-// Tests unitaires de optimiserPlan (src/plan.js).
-// Chaque cas construit ses propres stations avec des prix et des km ronds
-// pour que le resultat attendu soit calculable a la main (voir commentaire
-// de chaque test). Ne pas modifier plan.js pour faire passer ces tests.
+// Tests unitaires de src/plan.js (modele du 24/10/2026 : etat du reservoir, achat
+// « juste ce qu'il faut » ou « plein » a chaque arret, carburant consomme + 0,80 EUR par
+// arret). Chaque cas construit ses stations avec des prix et des km ronds pour que le
+// resultat attendu soit calculable a la main (voir le commentaire de chaque test).
+// Ne pas modifier plan.js pour faire passer ces tests.
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {optimiserPlan, pleinsExtremites, autonomieUtile, coutVoyage, prixMedian, economieVsMedian} = require('./plan.js');
 
-// Comparaison avec tolerance : les couts en euros passent par des
-// multiplications flottantes (ex: 1.2*2*53 = 127.19999999999999).
-function presque(a, b, tol = 1e-9){
-  return Math.abs(a - b) < tol;
-}
+function presque(a, b, tol = 1e-9){ return Math.abs(a - b) < tol; }
+const st = (s, km, p, e = 0) => ({s, km, e, p});
 
-test('aucun arret necessaire quand total <= A', () => {
-  // total (80) <= A (100) : retour immediat, quel que soit cand (ici vide).
-  const r = optimiserPlan([], 100, 80, 1);
-  assert.deepStrictEqual(r, {plan: [], coutAchats: 0, utiles: new Set()});
+// ---- optimiserPlan ----
+
+test('aucun arret necessaire quand total <= A : reste = A - total, voyage = pd x total', () => {
+  const r = optimiserPlan([st('D', 5, 1.0)], 100, 80, 1);
+  assert.deepStrictEqual(r.plan, []);
+  assert.strictEqual(r.coutAchats, 0);
+  assert.strictEqual(r.reste, 20);
+  assert.ok(presque(r.voyage, 80));
+  assert.strictEqual(optimiserPlan([], 100, 80, 1).voyage, null);   // pd inconnu : non chiffrable
 });
 
 test('infaisable : aucune station atteignable', () => {
-  // total (150) > A (100) et cand vide : aucune facon de rejoindre
-  // l'arrivee, le plan doit etre null.
-  const r = optimiserPlan([], 100, 150, 1);
-  assert.deepStrictEqual(r, {plan: null});
+  assert.deepStrictEqual(optimiserPlan([], 100, 150, 1), {plan: null});
+  // Une station trop loin pour le plein de depart : infaisable aussi.
+  assert.deepStrictEqual(optimiserPlan([st('S', 120, 1)], 100, 150, 1), {plan: null});
 });
 
-test('un arret : a ecart egal, la station la moins chere est retenue', () => {
-  // Deux stations au meme point du trajet (km=70, e=0), prix differents.
-  // Les deux sont atteignables directement (70<=A=100) et permettent de
-  // finir le trajet en un seul plein (150-70+0=80<=A=100).
-  // Cout via "cher" (1.5 EUR/L)    : 1.5 * 1 * (150-70+0) = 120
-  // Cout via "pascher" (1.0 EUR/L) : 1.0 * 1 * (150-70+0) = 80   <- retenu
-  const cher = {s: 'cher', v: 'v', km: 70, e: 0, p: 1.5};
-  const pascher = {s: 'pascher', v: 'v', km: 70, e: 0, p: 1.0};
-  const r = optimiserPlan([cher, pascher], 100, 150, 1);
+test('cas Montpellier -> Tours : la moins chere ATTEIGNABLE gagne, pas la plus tardive', () => {
+  // A 370, total 660, 10 L/100. Il manque 290 km. BON (km 300, 0.85) et CHER (km 360, 1.05)
+  // permettent tous deux un seul arret. Ancien modele : CHER (moins de reste a facturer).
+  // Nouveau : BON, achat juste 290 km = 29 L a 0.85 = 24.65 EUR.
+  const D = st('D', 5, 0.90), BON = st('BON', 300, 0.85), CHER = st('CHER', 360, 1.05), F = st('F', 655, 0.90);
+  const r = optimiserPlan([D, BON, CHER, F], 370, 660, 0.1, {utiles: true});
+  assert.deepStrictEqual(r.plan.map(e => e.s), ['BON']);
+  assert.strictEqual(r.plan[0].plein, false);
+  assert.ok(presque(r.plan[0].q, 290) && presque(r.plan[0].litres, 29) && presque(r.plan[0].arrivee, 70));
+  assert.ok(presque(r.coutAchats, 24.65));
+  // voyage = plein de depart (370 km a 0.90 = 33.30) + achats = 57.95 ; reste 0.
+  assert.ok(presque(r.voyage, 57.95));
+  assert.strictEqual(r.reste, 0);
+  assert.ok(r.utiles.has('BON') && !r.utiles.has('CHER'));
+});
+
+test('utiles : une station a moins de 0,50 EUR de l\'optimum est retenue', () => {
+  const D = st('D', 5, 0.90), BON = st('BON', 300, 0.85), BON2 = st('BON2', 305, 0.851), CHER = st('CHER', 360, 1.05);
+  const r = optimiserPlan([D, BON, BON2, CHER], 370, 660, 0.1, {utiles: true});
+  assert.ok(r.utiles.has('BON') && r.utiles.has('BON2') && !r.utiles.has('CHER'));
+  assert.strictEqual(optimiserPlan([D, BON, BON2, CHER], 370, 660, 0.1).utiles, undefined);   // sans option : pas de passe arriere
+});
+
+test('plein a une station pas chere pour acheter moins a l\'arret cher impose ensuite', () => {
+  // A 370, total 700. C1 (km 100, 0.70) puis E (km 400, 1.20), seule station atteignable
+  // depuis C1 permettant de finir. Juste a C1 (30 km) puis 300 km a 1.20 = 21 + 360 ;
+  // plein a C1 (100 km = 70) puis 230 km a 1.20 = 276 : 346 < 381.
+  const D = st('D', 5, 0.90), C1 = st('C1', 100, 0.70), E = st('E', 400, 1.20);
+  const r = optimiserPlan([D, C1, E], 370, 700, 1);
+  assert.deepStrictEqual(r.plan.map(e => [e.s, e.plein, e.q]), [['C1', true, 100], ['E', false, 230]]);
+  assert.ok(presque(r.coutAchats, 346));
+  assert.ok(presque(r.voyage, 0.90 * 370 + 346));
+});
+
+test('deux arrets imposes par l\'autonomie, plan en km croissants, quantites exactes', () => {
+  // A 100, total 250. S1 (km 90, 1.0), S2 (km 180, 1.1). Plein a S1 (90 km) -> S2 avec 10
+  // -> juste 60 km a 1.1 = 66 : 156 ; juste a S1 (80) -> S2 vide -> 70 a 1.1 = 77 : 157.
+  const D = st('D', 5, 1.0), S1 = st('S1', 90, 1.0), S2 = st('S2', 180, 1.1);
+  const r = optimiserPlan([D, S1, S2], 100, 250, 1);
+  assert.deepStrictEqual(r.plan.map(e => e.s), ['S1', 'S2']);
+  assert.ok(presque(r.coutAchats, 156));
+  assert.ok(presque(r.voyage, 100 + 156));
+});
+
+test('la penalite de 0,80 EUR evite un arret inutile', () => {
+  // A 100, total 120 : un arret suffit (20 km a acheter). Deux stations a 1.0 a km 50 et
+  // 60 : un seul arret retenu, jamais deux.
+  const r = optimiserPlan([st('D', 5, 1.0), st('S1', 50, 1.0), st('S2', 60, 1.0)], 100, 120, 1);
   assert.strictEqual(r.plan.length, 1);
-  assert.strictEqual(r.plan[0].s, 'pascher');
-  assert.ok(presque(r.coutAchats, 80));
+  assert.ok(presque(r.coutAchats, 20));
 });
 
-test('la penalite de 0.80 EUR evite un arret qui economiserait moins de 0.80 EUR', () => {
-  // Station A (km=60, e=0, p=1.0) suffit a elle seule pour finir le trajet :
-  // cout = 1.0 * 1 * (150-60+0) = 90.
-  // Station B (km=145, e=0, p=0.9), atteignable seulement via A
-  // (145-60+0+0=85<=A=100), un peu moins chere. Cout en passant par B :
-  //   segment A->B        : 1.0 * 1 * (145-60+0) = 85
-  //   + penalite d'arret  : 0.8
-  //   + segment B->arrivee: 0.9 * 1 * (150-145+0) = 4.5
-  //   = 90.3 > 90
-  // L'economie brute sur le dernier troncon (85-4.5 vs 90 : gain de 0.5 EUR)
-  // est inferieure a la penalite (0.8 EUR) : le detour par B est ecarte,
-  // seule A est retenue.
-  const A = {s: 'A', v: 'v', km: 60, e: 0, p: 1.0};
-  const B = {s: 'B', v: 'v', km: 145, e: 0, p: 0.9};
-  const r = optimiserPlan([A, B], 100, 150, 1);
-  assert.strictEqual(r.plan.length, 1);
-  assert.strictEqual(r.plan[0].s, 'A');
-  assert.ok(presque(r.coutAchats, 90));
+test('le detour compte a l\'aller et au retour : une station moins chere mais loin perd', () => {
+  // A 100, total 150, 1 L/km. P (km 60, e 0, 1.00) : arrive avec 40, il manque 50 km -> 50.
+  // L (km 60, e 1, 0.95) : arrive avec 39, il manque 52 km -> 49.40 : L gagne.
+  // L a e 10 : arrive avec 30, il manque 70 km -> 66.50 : P gagne (le detour se paie).
+  const r1 = optimiserPlan([st('D', 5, 1.0), st('P', 60, 1.00), st('L', 60, 0.95, 1)], 100, 150, 1);
+  assert.strictEqual(r1.plan[0].s, 'L');
+  assert.ok(presque(r1.coutAchats, 49.4));
+  const r2 = optimiserPlan([st('D', 5, 1.0), st('P', 60, 1.00), st('L', 60, 0.95, 10)], 100, 150, 1);
+  assert.strictEqual(r2.plan[0].s, 'P');
+  assert.ok(presque(r2.coutAchats, 50));
 });
 
-test('le detour compte double (2*e) : une station moins chere mais loin du trajet perd', () => {
-  // Autonomie A=60. Station A (km=50, e=0, p=1.0) est le seul premier arret
-  // possible (seule station atteignable directement : 50<=60).
-  // Deux candidates pour le second arret, toutes deux atteignables
-  // seulement depuis A :
-  //  C1 (km=90, e=5, p=0.80) : prix au litre le plus bas, mais a 5 km du
-  //     trajet (grand ecart).
-  //  C2 (km=95, e=0, p=0.85) : un peu plus chere, mais pile sur le trajet.
-  // Cout du trajet via C1 :
-  //   A->C1 : 0.8 + 1.0*(90-50+2*5) = 0.8 + 50 = 50.8
-  //   C1->arrivee : 0.80*(140-90+5) = 0.80*55 = 44
-  //   total = 94.8
-  // Cout du trajet via C2 :
-  //   A->C2 : 0.8 + 1.0*(95-50+2*0) = 0.8 + 45 = 45.8
-  //   C2->arrivee : 0.85*(140-95+0) = 0.85*45 = 38.25
-  //   total = 84.05
-  // 84.05 < 94.8 : C2 (plus chere au litre) l'emporte, car le detour de C1
-  // est compte deux fois (2*e) dans le cout de la transition vers lui.
-  const A = {s: 'A', v: 'v', km: 50, e: 0, p: 1.0};
-  const C1 = {s: 'C1', v: 'v', km: 90, e: 5, p: 0.80};
-  const C2 = {s: 'C2', v: 'v', km: 95, e: 0, p: 0.85};
-  const r = optimiserPlan([A, C1, C2], 60, 140, 1);
-  assert.deepStrictEqual(r.plan.map(x => x.s), ['A', 'C2']);
-});
-
-test('coutAchats correspond au calcul a la main pour un cas a un arret', () => {
-  // Station unique S (km=80, e=3, p=1.2), atteignable directement
-  // (80+3=83<=A=100) et suffisante pour finir le trajet
-  // (130-80+3=53<=A=100). Avec un seul arret, coutAchats se reduit au cout
-  // du dernier troncon : p * lkm * (total - km + e)
-  //                     = 1.2 * 2 * (130-80+3) = 1.2 * 2 * 53 = 127.2
-  const S = {s: 'S', v: 'v', km: 80, e: 3, p: 1.2};
-  const r = optimiserPlan([S], 100, 130, 2);
-  assert.deepStrictEqual(r.plan.map(x => x.s), ['S']);
-  assert.ok(presque(r.coutAchats, 127.2));
-});
-
-test('utiles contient les stations du plan et exclut une station trop chere', () => {
-  // Deux stations au meme point (km=70, e=0) : cher2 (2.0 EUR/L) et
-  // pascher2 (1.0 EUR/L). pascher2 est retenue dans le plan, avec
-  // coutFin = 1.0 * 1 * (150-70+0) = 80.
-  // Pour cher2, le meilleur enchainement possible n'est pas d'y acheter tout
-  // le carburant (2.0*80=160) mais de repartir aussitot vers pascher2 :
-  //   0.8 (penalite) + 2.0*1*(70-70+2*0) + 80 (cout depuis pascher2) = 80.8
-  // 80.8 > coutFin(80) + 0.50 = 80.5 : cher2 est donc exclue de utiles.
-  const cher2 = {s: 'cher2', v: 'v', km: 70, e: 0, p: 2.0};
-  const pascher2 = {s: 'pascher2', v: 'v', km: 70, e: 0, p: 1.0};
-  const r = optimiserPlan([cher2, pascher2], 100, 150, 1);
-  assert.deepStrictEqual(r.plan.map(x => x.s), ['pascher2']);
-  assert.deepStrictEqual(r.utiles, new Set(['pascher2']));
-});
-
-test('deux arrets imposes par l\'autonomie, plan en km croissants', () => {
-  // A=100, total=250 : aucun arret unique ne suffit (depuis A, le reste du
-  // trajet depasserait toujours l'autonomie), deux arrets sont obligatoires.
-  // S1 (km=80, e=0, p=1.0)  : atteignable directement (80<=100).
-  // S2 (km=170, e=0, p=1.0) : atteignable seulement depuis S1
-  //   (170-80+0+0=90<=100) ; depuis S2, le reste (250-170+0=80<=100) passe.
-  // Achats reels (hors penalite d'arret, purement internes au calcul) :
-  //   S1->S2      : 1.0 * 1 * (170-80+0) = 90
-  //   S2->arrivee : 1.0 * 1 * (250-170+0) = 80
-  //   total = 170
-  const S1 = {s: 'S1', v: 'v', km: 80, e: 0, p: 1.0};
-  const S2 = {s: 'S2', v: 'v', km: 170, e: 0, p: 1.0};
-  const r = optimiserPlan([S1, S2], 100, 250, 1);
-  assert.deepStrictEqual(r.plan.map(x => x.s), ['S1', 'S2']);
-  assert.ok(r.plan[0].km < r.plan[1].km);
-  assert.ok(presque(r.coutAchats, 170));
+test('elagage au-dela de 240 candidats : plan toujours faisable', () => {
+  const cand = [];
+  for(let k = 1; k <= 600; k++) cand.push(st('S' + k, k, 0.8 + ((k * 7) % 30) / 100));
+  const r = optimiserPlan(cand, 200, 600, 0.07, {utiles: true});
+  assert.ok(Array.isArray(r.plan) && r.plan.length >= 2 && r.plan.length <= 4);
+  for(let i = 1; i < r.plan.length; i++) assert.ok(r.plan[i].km > r.plan[i - 1].km);
 });
 
 // ---- pleinsExtremites : plein au depart et a l'arrivee ----
 
 test('depart : la moins chere dans les 15 premiers km, celles au-dela ignorees', () => {
-  // D1 (km 3, 0.90) et D2 (km 12, 0.85) sont dans le rayon ; LOIN (km 40, 0.70)
-  // est moins chere mais hors rayon : D2 doit etre retenue.
-  const D1 = {s: 'D1', km: 3, e: 1, p: 0.90};
-  const D2 = {s: 'D2', km: 12, e: 2, p: 0.85};
-  const LOIN = {s: 'LOIN', km: 40, e: 0, p: 0.70};
-  const r = pleinsExtremites([D1, D2, LOIN], 600);
+  const r = pleinsExtremites([st('D1', 3, 0.90, 1), st('D2', 12, 0.85, 2), st('LOIN', 40, 0.70)], 600);
   assert.strictEqual(r.depart.s, 'D2');
 });
 
 test('a prix egal, le plus petit detour l\'emporte', () => {
-  const A1 = {s: 'A1', km: 5, e: 4, p: 0.85};
-  const A2 = {s: 'A2', km: 9, e: 1, p: 0.85};
-  assert.strictEqual(pleinsExtremites([A1, A2], 600).depart.s, 'A2');
+  assert.strictEqual(pleinsExtremites([st('A1', 5, 0.85, 4), st('A2', 9, 0.85, 1)], 600).depart.s, 'A2');
 });
 
 test('arrivee : la moins chere dans les 15 derniers km', () => {
-  // total 600 : rayon d'arrivee = km >= 585. M (km 300) est hors des deux rayons.
-  const M = {s: 'M', km: 300, e: 0, p: 0.60};
-  const F1 = {s: 'F1', km: 590, e: 3, p: 0.88};
-  const F2 = {s: 'F2', km: 598, e: 1, p: 0.84};
-  const r = pleinsExtremites([M, F1, F2], 600);
+  const r = pleinsExtremites([st('M', 300, 0.60), st('F1', 590, 0.88, 3), st('F2', 598, 0.84, 1)], 600);
   assert.strictEqual(r.arrivee.s, 'F2');
-  assert.strictEqual(r.depart, null);   // aucune station dans les 15 premiers km
+  assert.strictEqual(r.depart, null);
 });
 
 test('aucune station : depart et arrivee null', () => {
   assert.deepStrictEqual(pleinsExtremites([], 600), {depart: null, arrivee: null});
 });
 
-// ---- autonomieUtile : autonomie d'un plein saisie, ou deduite du reservoir ----
+// ---- autonomieUtile ----
 
 test('autonomie saisie : elle prime sur le reservoir, reserve deduite', () => {
-  // 600 km saisis ; le reservoir (40 L a 7 L/100 = 571 km) est ignore.
   assert.deepStrictEqual(autonomieUtile(7, 40, 600, 30), {plein: 600, A: 570, source: 'autonomie'});
 });
 
 test('sans autonomie : reservoir / conso x 100', () => {
-  // 40 L a 8 L/100 = 500 km ; reserve 50 -> 450 km utiles.
   assert.deepStrictEqual(autonomieUtile(8, 40, 0, 50), {plein: 500, A: 450, source: 'reservoir'});
 });
 
 test('ni autonomie ni reservoir exploitable : null', () => {
   assert.strictEqual(autonomieUtile(7, 0, 0, 30), null);
-  assert.strictEqual(autonomieUtile(0, 40, 0, 30), null);   // reservoir sans conso : rien a deduire
+  assert.strictEqual(autonomieUtile(0, 40, 0, 30), null);
 });
 
 test('autonomie saisie sans conso : l\'autonomie suffit a situer les arrets', () => {
   assert.deepStrictEqual(autonomieUtile(0, 0, 650, 30), {plein: 650, A: 620, source: 'autonomie'});
 });
 
-// ---- coutVoyage : plein de depart (meilleur prix a moins de 15 km) + achats en route ----
+// ---- coutVoyage, prixMedian, economieVsMedian ----
 
-test('coutVoyage : plein de depart au meilleur prix a moins de 15 km, puis achats', () => {
-  // D (km 5, 1.0) et D2 (km 10, 0.9) sont dans les 15 km : plein de depart a 0.9.
-  // S (km 80, e 0, p 1.2) est l'unique arret : achats = 1.2 * 1 * (130-80) = 60.
-  // Plein de depart = 0.9 * 1 * (80 + 0) = 72 ; voyage = 132.
-  const D = {s: 'D', km: 5, e: 0, p: 1.0}, D2 = {s: 'D2', km: 10, e: 0, p: 0.9};
-  const S = {s: 'S', km: 80, e: 0, p: 1.2};
-  const cand = [D, D2, S];
-  const r = optimiserPlan(cand, 100, 130, 1);
-  assert.deepStrictEqual(r.plan.map(x => x.s), ['S']);
-  assert.ok(presque(coutVoyage(cand, r, 130, 1), 132));
+test('coutVoyage : reprend le voyage du plan ; null si infaisable', () => {
+  const r = optimiserPlan([st('D', 5, 0.90), st('BON', 300, 0.85)], 370, 660, 0.1);
+  assert.ok(presque(coutVoyage([], r), r.voyage));
+  assert.strictEqual(coutVoyage([], {plan: null}), null);
+  assert.strictEqual(coutVoyage([], null), null);
 });
 
-test('coutVoyage : aucun arret necessaire -> le plein de depart couvre tout le trajet', () => {
-  const D = {s: 'D', km: 3, e: 0, p: 1.5};
-  const r = optimiserPlan([D], 100, 80, 2);
-  assert.ok(presque(coutVoyage([D], r, 80, 2), 1.5 * 2 * 80));
-});
-
-test('coutVoyage : null sans station a moins de 15 km du depart, null si infaisable', () => {
-  const S = {s: 'S', km: 80, e: 0, p: 1.2};
-  assert.strictEqual(coutVoyage([S], optimiserPlan([S], 100, 130, 1), 130, 1), null);
-  assert.strictEqual(coutVoyage([], {plan: null}, 130, 1), null);
-});
-
-// ---- prixMedian ----
-
-test('prixMedian : nombre impair de candidats -> la valeur du milieu', () => {
-  const cand = [{p: 1.9}, {p: 1.5}, {p: 1.7}];
-  assert.strictEqual(prixMedian(cand), 1.7);
-});
-
-test('prixMedian : nombre pair -> moyenne des deux du milieu ; vide -> null', () => {
-  const cand = [{p: 1.9}, {p: 1.5}, {p: 1.7}, {p: 1.6}];
-  assert.ok(presque(prixMedian(cand), 1.65));
+test('prixMedian : impair -> valeur du milieu ; pair -> moyenne ; vide -> null', () => {
+  assert.strictEqual(prixMedian([st('a', 0, 0.9), st('b', 0, 0.7), st('c', 0, 0.8)]), 0.8);
+  assert.ok(presque(prixMedian([st('a', 0, 0.9), st('b', 0, 0.7)]), 0.8));
   assert.strictEqual(prixMedian([]), null);
 });
 
-// ---- economieVsMedian : reference = memes arrets possibles, tous au prix median ----
-
 test('economie nulle quand tous les prix sont egaux', () => {
-  // Trois stations a 1.0 : la reference (mediane 1.0) est identique au plan reel.
-  const cand = [{s: 'D', km: 5, e: 0, p: 1.0}, {s: 'S1', km: 80, e: 0, p: 1.0}, {s: 'S2', km: 170, e: 0, p: 1.0}];
-  const r = optimiserPlan(cand, 100, 250, 1);
-  const v = coutVoyage(cand, r, 250, 1);
-  const e = economieVsMedian(cand, 100, 250, 1, v);
-  assert.strictEqual(e.median, 1.0);
-  assert.ok(presque(e.economie, 0));
-  assert.ok(presque(e.reference, v));
+  const cand = [st('D', 5, 0.9), st('S', 300, 0.9), st('F', 655, 0.9)];
+  const r = optimiserPlan(cand, 370, 660, 0.1);
+  const eco = economieVsMedian(cand, 370, 660, 0.1, r.voyage);
+  assert.ok(presque(eco.economie, 0) && presque(eco.median, 0.9));
 });
 
-test('economie positive quand une station moins chere est sur le trajet', () => {
-  // D (km 5, 1.2), CHER (km 70, 1.4), PASCHER (km 70, 1.0) : mediane 1.2.
-  // Reel : plein de depart a 1.2 sur 70 km = 84, puis 1.0 * 80 = 80 -> 164.
-  // Reference (tout a 1.2) : 1.2 * 70 + 1.2 * 80 = 180 ; economie = 16.
-  const cand = [{s: 'D', km: 5, e: 0, p: 1.2}, {s: 'CHER', km: 70, e: 0, p: 1.4}, {s: 'PASCHER', km: 70, e: 0, p: 1.0}];
-  const r = optimiserPlan(cand, 100, 150, 1);
-  const v = coutVoyage(cand, r, 150, 1);
-  assert.ok(presque(v, 164));
-  const e = economieVsMedian(cand, 100, 150, 1, v);
-  assert.strictEqual(e.median, 1.2);
-  assert.ok(presque(e.reference, 180));
-  assert.ok(presque(e.economie, 16));
+test('economie positive quand une station moins chere est sur le trajet (cas Tours)', () => {
+  // mediane de [0.90, 0.85, 1.05, 0.90] = 0.90 ; reference : 370 a 0.90 + 290 a 0.90 = 59.40 ;
+  // reel 57.95 -> economie 1.45.
+  const cand = [st('D', 5, 0.90), st('BON', 300, 0.85), st('CHER', 360, 1.05), st('F', 655, 0.90)];
+  const r = optimiserPlan(cand, 370, 660, 0.1);
+  const eco = economieVsMedian(cand, 370, 660, 0.1, r.voyage);
+  assert.ok(presque(eco.economie, 1.45) && presque(eco.reference, 59.4));
 });
 
 test('economie : infaisable ou voyage non chiffrable -> null', () => {
-  const cand = [{s: 'D', km: 5, e: 0, p: 1.0}];
-  assert.strictEqual(economieVsMedian(cand, 100, 500, 1, null), null);   // voyage null
-  assert.strictEqual(economieVsMedian([], 100, 500, 1, 10), null);       // aucun candidat
-  // Faisable en reel mais la version mediane l'est tout autant : ici trajet infaisable des deux cotes.
-  const r = optimiserPlan(cand, 100, 500, 1);
-  assert.strictEqual(r.plan, null);
-  assert.strictEqual(economieVsMedian(cand, 100, 500, 1, coutVoyage(cand, r, 500, 1)), null);
+  assert.strictEqual(economieVsMedian([], 100, 150, 1, null), null);
+  assert.strictEqual(economieVsMedian([st('S', 5, 1)], 100, 150, 1, 10), null);   // infaisable a la mediane
 });

@@ -15,8 +15,14 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   Import/partage d'une fiche par l'URL : `fuelpilot.html#veh=Nom|e85+e10|6.5|50|30`
   (nom|carburants|conso|réservoir|réserve), autonomie en 6ᵉ champ facultatif : `…|30|600`.
 - **Plan de pleins optimal** (problème de la station-service, programmation
-  dynamique avant/arrière) : où s'arrêter en partant plein, détours facturés en
-  carburant ET en minutes, pénalité par arrêt. Carte-héros : le **carburant du
+  dynamique sur l'état du réservoir, refaite le 24/10/2026) : on part plein, à
+  chaque arrêt on achète **juste ce qu'il faut** pour atteindre le suivant (ou
+  l'arrivée) ou **le plein** quand l'arrêt suivant, imposé par l'autonomie, est
+  plus cher ; on minimise le carburant consommé + 0,80 € par arrêt, détours
+  facturés en carburant ET en minutes. L'ancien modèle facturait à chaque arrêt
+  tout le reste du trajet et poussait vers une station tardive et chère
+  (Montpellier → Tours : Gannat 0,879 au lieu de Vic-le-Comte 0,859). Chaque
+  étape affiche les litres à prendre et le carburant à bord. Carte-héros : le **carburant du
   voyage** en chiffre (plein de départ compris), « 2 arrêts · ≈ 14 min · −6,40 €
   vs pleins au prix médian » (référence = le même calcul sur les mêmes stations,
   tous les prix remplacés par la médiane du couloir), ligne de temps verticale
