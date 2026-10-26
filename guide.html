@@ -126,14 +126,18 @@
     Plusieurs véhicules possibles, chacun avec sa fiche, mémorisées dans votre navigateur.</div></li>
   <li><div class="carte"><b class="titre">Autour de vous</b>
     La carte affiche les stations et leurs prix, relevés sur le flux officiel du ministère de l'Économie (mis à jour toutes les
-    10 minutes environ). Les stations en rupture sont écartées, la date de relevé est dans chaque bulle.
+    10 minutes environ). Les stations en rupture du carburant choisi sont écartées du classement et du plan, mais restent visibles en gris avec la date de début de la rupture (une autre application peut encore afficher leur ancien prix). La date de relevé est dans chaque bulle.
     <div class="legende"><span class="v">la moins chère affichée</span><span class="b">dans la norme</span><span class="n">repères du plan</span><span class="r">les 10 % les plus chères</span></div>
     Toucher une station ouvre sa fiche ; <kbd>Y aller</kbd> lance votre application de navigation (choisie au premier usage).</div></li>
   <li><div class="carte"><b class="titre">Un trajet : où faire le plein</b>
-    Saisissez départ et arrivée (la flèche ⇄ les inverse), cochez <kbd>Sans péage</kbd> si besoin, réglez le couloir
-    (1 à 20 km autour de la route), puis <kbd>Stations sur le trajet</kbd>. La carte-héros vous dit où vous arrêter :
-    carburant du voyage, votre prix moyen au litre, nombre d'arrêts, minutes de détour et économie par rapport à des pleins au plus cher du couloir, avec la
-    ligne de temps des étapes. <kbd>Mémoriser</kbd> garde le trajet (20 au plus) dans la liste « Trajets mémorisés… » ;
+    Le départ est « Ma position » d'office ; touchez-le et tapez pour partir d'ailleurs. Saisissez l'arrivée : vos
+    derniers lieux s'affichent sous les champs (un toucher relance le trajet, la croix efface un lieu). La flèche ⇄
+    inverse départ et arrivée ; cochez <kbd>Sans péage</kbd> si besoin, puis <kbd>Stations sur le trajet</kbd>. La
+    carte-héros vous dit où vous arrêter : carburant du voyage, votre prix moyen au litre, nombre d'arrêts, minutes perdues
+    et économie par rapport à des pleins au plus cher du trajet, avec la ligne de temps des étapes. Juste dessous,
+    <b>« Faire un détour pour payer moins ? »</b> : jusqu'à quatre possibilités, de « Sans détour » à « +20 min de
+    détour », chacune avec son prix et ce qu'elle fait gagner ; la ligne « conseillé » est celle où chaque minute de détour
+    rapporte au moins 10 € de l'heure. Touchez une ligne pour refaire le plan avec ce détour. <kbd>Mémoriser</kbd> garde le trajet (20 au plus) dans la liste « Trajets mémorisés… » ;
     la flèche <kbd>⇄</kbd> inverse départ et arrivée d'un clic.</div></li>
 </ol>
 
@@ -144,7 +148,7 @@
     Rien à installer, aucun compte à créer. Le code est public et libre (licence MIT).</li>
   <li><b>Un plan de pleins</b>
     Sous la carte-héros, <kbd>Partager le plan</kbd>. Sur téléphone, la feuille de partage s'ouvre (WhatsApp, SMS, mail…) ;
-    sur ordinateur, le lien est copié et « Lien copié » s'affiche. Le lien contient départ, arrivée, couloir, options et la fiche
+    sur ordinateur, le lien est copié et « Lien copié » s'affiche. Le lien contient départ, arrivée, détour choisi, options et la fiche
     du véhicule ; la personne l'ouvre et le plan se recalcule chez elle avec les prix du moment. Rien de personnel ne part :
     le départ est le texte saisi, et « Ma position » ne devient jamais une coordonnée.</li>
   <li><b>Un véhicule</b>
@@ -154,12 +158,12 @@
 
 <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="16" y2="18"/></svg> Comment le plan est calculé</h2>
 <div class="carte">
-  <p>Vous partez le réservoir plein. Le long de la route, chaque station du couloir est un arrêt possible ; l'application
+  <p>Vous partez le réservoir plein. Le long de la route, chaque station à portée du détour choisi est un arrêt possible ; l'application
     cherche la suite d'arrêts qui coûte le moins cher pour tout le voyage, en comptant le carburant <b>et</b> les minutes de
     chaque détour, plus une petite pénalité par arrêt (s'arrêter a un coût, même pour deux centimes de moins). Elle ne
     descend jamais sous votre réserve et arrive avec de quoi repartir.</p>
   <p class="muet">« −11,40 € vs pleins au plus cher » compare ce plan au même calcul où toutes les stations afficheraient le prix
-    le plus élevé du couloir : c'est ce que vous gagnez à choisir <em>où</em> vous arrêter, pas une promesse sur le prix du marché.
+    le plus élevé du trajet : c'est ce que vous gagnez à choisir <em>où</em> vous arrêter, pas une promesse sur le prix du marché.
     Le plein de départ est compté au meilleur prix à moins de 15 km du départ.</p>
 </div>
 
@@ -178,8 +182,8 @@
       cartes et itinéraires IGN, adresses). Rien de ce que vous saisissez ne quitte votre appareil, sauf ce que vous choisissez
       de partager par un lien.</p></details>
   <details><summary>Le plan dit « infaisable », que faire ?</summary>
-    <p>L'autonomie entre deux stations du couloir ne suffit pas. L'application propose trois remèdes : élargir le couloir,
-      vérifier l'autonomie et la réserve du véhicule, ou accepter plus de carburants.</p></details>
+    <p>L'autonomie entre deux stations à portée ne suffit pas. L'application propose les remèdes : accepter un détour
+      (des stations plus loin de la route), réduire la réserve, vérifier l'autonomie du véhicule, ou accepter plus de carburants.</p></details>
   <details><summary>Et pour une voiture électrique ?</summary>
     <p>Pas encore : ViaMinus couvre les carburants déclarés au flux officiel (gazole, SP95, SP98, E10, E85, GPL). Les bornes de
       recharge sont une piste étudiée.</p></details>
