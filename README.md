@@ -31,18 +31,42 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   voyage** en chiffre (plein de départ compris), « 2 arrêts · ≈ 14 min · votre
   prix 0,85 €/L · −11,40 € vs pleins au plus cher (1,05 €/L) » (référence = le
   même calcul sur les mêmes stations, tous les prix remplacés par le plus cher du
-  couloir — plus de médiane, Eric 24/10/2026), ligne de temps verticale
-  (départ, étapes avec « Y aller », arrivée, retour), mini-barres par couloir
-  (toucher une barre change le couloir), états dessinés (infaisable avec trois
-  remèdes, aucun arrêt nécessaire, véhicule à compléter).
+  trajet — plus de médiane, Eric 24/10/2026), ligne de temps verticale
+  (départ, étapes avec « Y aller », arrivée, retour), états dessinés (infaisable
+  avec ses remèdes, aucun arrêt nécessaire, véhicule à compléter).
+- **Corrections sur place** (26/10/2026, Lodève : E85 annoncé par le flux officiel,
+  pompe vide) : dans la fiche station, chaque carburant a « Corriger » — prix vu à la
+  pompe, « Pompe vide », « Revenir au prix déclaré » ; et chaque arrêt du plan a
+  « Pompe vide ? » (refait le plan sans elle) et « si c'est vide : » la station la plus
+  proche atteignable avec ce qui reste (route ≈ 1,3 × vol d'oiseau). Gardé sur
+  l'appareil (`fuelpilot:corrections`), tant que la station ne déclare rien de plus
+  récent, 48 h au plus ; une station signalée vide reste sur la carte, grisée.
+  **Prix figé** : carburant non redéclaré depuis 14 jours alors que la station déclare
+  ses autres carburants (12,6 % des stations E85 au 26/10) — le plan l'évite dès
+  qu'une autre fait l'affaire (surcoût fictif de 15 € par arrêt) et l'écrit s'il doit
+  y passer ; chaque arrêt affiche la date de son prix. Limite connue : le flux officiel
+  peut annoncer un carburant absent (Leclerc Millau, 26/10 : site de l'enseigne sans
+  E85) ; le recouper automatiquement demanderait un relais côté serveur.
+- **Faire un détour ?** (26/10/2026, remplace le sélecteur de couloir du
+  formulaire et les mini-barres) : le plan est refait pour 1, 2, 5, 10 et 20 km
+  de la route ; ne restent que les choix utiles (faisables, aucun autre à la fois
+  aussi rapide et moins cher), quatre au plus, du plus rapide au moins cher —
+  « Sans détour », « +6 min de détour »… avec le carburant du voyage et le gain.
+  Temps = 5 min par arrêt + détour à ~50 km/h, plein de départ compris (aller le
+  chercher hors de la route compte aussi). « Conseillé » : on part du plus rapide
+  et on accepte chaque détour plus long tant qu'il rapporte au moins
+  `VALEUR_HEURE` = 10 €/h ; c'est le choix affiché à chaque trajet lancé à la
+  main (un lien partagé garde le sien ; toucher une ligne fige le choix). Le
+  `select#couloir`, caché, reste la source de vérité (lien, liste, carte). Le plan
+  reste affiché même si la zone visible ne montre aucune station.
 - **Aller-retour** : plus de case au formulaire depuis le 24/10/2026 (la flèche ⇄
   inverse départ et arrivée, c'est le geste retenu) ; le mécanisme reste pour les
   liens `#trajet=…|r` et les trajets mémorisés : le retour est un second itinéraire,
   le plan couvre la boucle (une station proche des deux sens compte deux fois),
   le plein du retour devient une étape, le tracé montre l'aller et le retour.
-- **Partage du plan** : `fuelpilot.html#trajet=<départ>|<arrivée>|<couloir>|<options>&veh=…`
+- **Partage du plan** : `fuelpilot.html#trajet=<départ>|<arrivée>|<détour>|<options>&veh=…`
   — départ et arrivée tels que saisis (`encodeURIComponent` ; départ vide =
-  « Ma position », jamais une coordonnée), couloir ∈ {1, 2, 5, 10, 20}, options
+  « Ma position », jamais une coordonnée), détour ∈ {1, 2, 5, 10, 20} km, options
   = lettres `p` (sans péage) et `r` (aller-retour), puis la fiche véhicule au
   format `#veh=` (traitée en premier). Partage natif quand il existe, sinon
   copie du lien. Même bouton dans le garage pour la fiche (`#veh=`).
@@ -56,9 +80,15 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   camping-car, scooter et moto = ordres de grandeur dits « estimation large » ;
   hybrides sans estimation. Le garage reprend type et catégorie, bouton
   « Estimer » à côté de la conso, suppression avec « Annuler ».
+- **Départ et lieux récents** (26/10/2026) : départ « Ma position » écrit d'office
+  (en bleu, tout sélectionné au toucher : taper remplace ; vide, il y revient) ; les
+  8 derniers lieux saisis à la main (arrivée, et départ s'il n'est pas « Ma
+  position ») sont proposés sous le champ actif, filtrés par la saisie — un toucher
+  sur l'arrivée relance le trajet, la croix efface le lieu. Clé `fuelpilot:lieux`
+  du stockage local, rendue en texte ; jamais les trajets importés par lien.
 - **Itinéraire** : géocodage Base Adresse Nationale + tracé Géoplateforme IGN,
-  option **sans péage** (moteur `bdtopo-pgr`, autoroutes exclues), couloir
-  1-20 km, les stations suivent le zoom ; flèche **⇄** entre les deux champs pour
+  option **sans péage** (moteur `bdtopo-pgr`, autoroutes exclues), stations
+  chargées à 20 km de la route puis filtrées par le détour choisi, elles suivent le zoom ; flèche **⇄** entre les deux champs pour
   inverser départ et arrivée (trajet retour recalculé d'un clic). **Secours**
   (24/10/2026 : la Géoplateforme répondait 404 sur tout itinéraire) : chaque appel
   est borné à 20 s ; géocodage Géoplateforme si la BAN se tait, tracé Valhalla
@@ -72,7 +102,10 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   statique servi en https suffit.
 - **Lisibilité** : vert = le moins cher affiché (ex æquo compris), bleu = dans la
   norme, noir = repères du plan (étapes, départ, arrivée), rouge = les
-  10 % les plus chers du secteur, stations en **rupture** écartées, dates de
+  10 % les plus chers du secteur, stations en **rupture** du carburant choisi
+  écartées du classement et du plan mais montrées en **gris** avec la date de début
+  (ruptures temporaires de moins de 90 jours ; le flux vide leur prix, Waze garde
+  le dernier prix saisi par ses utilisateurs), dates de
   relevé dans chaque bulle (rouge au-delà de 4 jours).
 - **Position** : géolocalisation de l'appareil (contexte sécurisé requis —
   servir en https), appui long ou clic droit sur la carte pour poser le repère

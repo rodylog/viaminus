@@ -176,6 +176,7 @@ if(CARTE) CARTE.couche('fh-trace', {type: 'geojson', data: TRACE_VIDE},
 
 let MARQUEURS = [];   // marqueurs HTML des stations et reperes du plan, refaits a chaque rendu
 let DATA = [], sortKey = 'prix', sortAsc = true;
+let RUPTURES = [];    // stations en rupture du carburant choisi : en gris, hors classement et hors plan
 
 const dist = (la,lo) => {
   const R=6371, p=Math.PI/180;
@@ -239,9 +240,23 @@ function normalise(rows){
                        .map(x => x.trim().toLowerCase()).filter(Boolean)),
             d:dist(la,lo),
             prix:Object.fromEntries(FUELS.map(([k])=>[k,r[k+'_prix']])),
-            maj:Object.fromEntries(FUELS.map(([k])=>[k,r[k+'_maj']]))};
-  }).filter(Boolean);
+            maj:Object.fromEntries(FUELS.map(([k])=>[k,r[k+'_maj']])),
+            // Debut et type de rupture : seule la requete des ruptures les demande (chargerRuptures).
+            depuis:Object.fromEntries(FUELS.map(([k])=>[k,r[k+'_rupture_debut']||null])),
+            kotype:Object.fromEntries(FUELS.map(([k])=>[k,r[k+'_rupture_type']||null])),
+            off:{prix:Object.fromEntries(FUELS.map(([k])=>[k,r[k+'_prix']])),
+                 maj:Object.fromEntries(FUELS.map(([k])=>[k,r[k+'_maj']]))},
+            corr:{}};
+  }).filter(Boolean).map(appliquerCorr);
 }
+// « E85 depuis le 04/09/2026 » quand la date est connue, sinon le libelle brut du flux.
+const dateFr = s => esc(String(s).slice(8,10)+'/'+String(s).slice(5,7)+'/'+String(s).slice(0,4));
+const hhmm = t => new Date(t).toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'});
+const ruptureTxt = s => [
+  ...FUELS.filter(([k]) => s.corr && s.corr[k] && s.corr[k].vide).map(([k]) => `${COURT[k]} signalé vide par vous à ${hhmm(s.corr[k].t)}`),
+  ...FUELS.filter(([k]) => s.depuis[k]).map(([k]) => `${COURT[k]} depuis le ${dateFr(s.depuis[k])}`)
+].join(', ') || s.rupture;
+const aSignalement = s => !!s.corr && Object.values(s.corr).some(c => c.vide);
 
 // Selection multiple : une station n'est retenue que si elle sert TOUS les
 // carburants coches ; le classement se fait sur la somme, mais chaque carburant
@@ -251,7 +266,62 @@ const COURT = {e10:'E10', sp98:'SP98', sp95:'SP95', e85:'E85',
 // Libelles tels qu'ils apparaissent dans carburants_rupture_* du flux officiel.
 const RUPT = {e10:'e10', sp98:'sp98', sp95:'sp95', e85:'e85',
               gazole:'gazole', gplc:'gplc'};
-const dispo = (s, k) => s.prix[k] != null && !s.hs.has(RUPT[k]);
+// Corrections faites sur place par l'utilisateur (Eric, 26/10/2026 : Lodeve, E85 annonce par
+// le flux officiel, pompe vide ; « ajoute cette fonction de modifier le prix ou mettre en
+// rupture »). Par station et par carburant : {t, prix?} ou {t, vide: true}. Gardees sur cet
+// appareil ; elles tiennent tant que la station n'a rien declare de plus recent, 48 h au plus.
+const CLE_CORR = 'fuelpilot:corrections', CORR_MS = 48 * 3600e3;
+function corrLues(){
+  try{
+    const o = JSON.parse(localStorage.getItem(CLE_CORR)) || {}, t = Date.now();
+    return Object.fromEntries(Object.entries(o).filter(([, c]) => c && typeof c.t === 'number' && t - c.t < CORR_MS));
+  }catch(e){ return {}; }
+}
+let CORR = corrLues();
+function appliquerCorr(s){
+  s.corr = {};
+  FUELS.forEach(([k]) => {
+    s.prix[k] = s.off.prix[k]; s.maj[k] = s.off.maj[k];
+    const c = CORR[`${s.id}|${k}`];
+    if(!c) return;
+    const offi = s.off.maj[k] ? new Date(s.off.maj[k]).getTime() : 0;
+    if(offi > c.t) return;              // la station a declare depuis : sa donnee reprend la main
+    s.corr[k] = c;
+    if(c.prix != null){ s.prix[k] = c.prix; s.maj[k] = new Date(c.t).toISOString(); }
+  });
+  return s;
+}
+function corriger(s, ks, quoi){
+  CORR = corrLues();
+  ks.forEach(k => { const cle = `${s.id}|${k}`; if(quoi) CORR[cle] = Object.assign({t: Date.now()}, quoi); else delete CORR[cle]; });
+  try{ localStorage.setItem(CLE_CORR, JSON.stringify(CORR)); }catch(e){ /* stockage refuse */ }
+  DATA.forEach(appliquerCorr); RUPTURES.forEach(appliquerCorr); appliquerCorr(s);
+  rendu();
+  // La fiche peut montrer un objet d'avant un rechargement de la carte : on la rouvre sur le frais.
+  if(STATION && STATION.id === s.id && !$('ficheStation').hidden)
+    ouvrirStation({s: DATA.find(x => x.id === s.id) || RUPTURES.find(x => x.id === s.id) || s, v: null});
+}
+const signaleVide = (s, k) => !!(s.corr && s.corr[k] && s.corr[k].vide);
+// Prix « fige » : le carburant n'a pas ete redeclare depuis FIGE_J jours alors que la station
+// declare ses autres carburants — profil d'une pompe hors service (Millau, 26/10/2026 : E85
+// fige depuis septembre, gazole du jour ; 12,6 % des stations E85 au-dela de 14 j, mesure du
+// 26/10). Le plan l'evite des qu'une autre station fait l'affaire et le dit s'il doit y passer.
+const FIGE_J = 14, RISQUE_FIGE = 15;   // € fictifs par arret : evitee sauf necessite
+function prixFige(s, ks){
+  const dates = FUELS.map(([k]) => s.off.maj[k]).filter(Boolean).sort();
+  const max = dates[dates.length - 1];
+  if(!max) return null;
+  for(const k of ks){
+    if(s.corr[k]) continue;                       // corrige sur place : plus de doute
+    const m = s.off.maj[k];
+    if(m && (new Date(max) - new Date(m)) / 864e5 >= FIGE_J) return m;
+  }
+  return null;
+}
+const kmEntre = (a, b) => { const r = Math.PI / 180, dLa = (b.la - a.la) * r, dLo = (b.lo - a.lo) * r;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.la * r) * Math.cos(b.la * r) * Math.sin(dLo / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h)); };
+const dispo = (s, k) => s.prix[k] != null && !s.hs.has(RUPT[k]) && !signaleVide(s, k);
 const choix = () => [...document.querySelectorAll('#carbs input:checked')].map(i => i.value);
 
 function pick(s, sel){
@@ -339,19 +409,47 @@ function rendu(){
   }
   const list = source.map(s => ({s, v: pick(s, sel)})).filter(o => o.v);
   const n = list.length;
+  // Stations en rupture du carburant choisi (voir chargerRuptures) : etiquette grise,
+  // toucher = fiche avec la date de debut. Dessinees avant les prix, qui restent dessus.
+  const servies = new Set(list.map(o => o.s.id)), ks = kosVoulus(sel), seuil = seuilRupture();
+  const large = +$('couloir').value, vue = emprise();
+  const dansVue = s => !ROUTE || (s.ecart != null && s.ecart <= large && dansEmprise(vue, s.la, s.lo));
+  const koVu = new Set();
+  const koDe = (s, k) => recente(s, k, seuil) || signaleVide(s, k);
+  const enRupture = [...RUPTURES, ...DATA.filter(s => ks.some(k => signaleVide(s, k)))]
+    .filter(s => ks.some(k => koDe(s, k)) && !servies.has(s.id) && dansVue(s) && !koVu.has(s.id) && koVu.add(s.id));
+  // Vue large (zoom < 10, un trajet entier) : simple pastille grise barree, le texte
+  // encombrerait la carte ; il revient en zoomant, et la fiche dit tout au toucher.
+  const compact = CARTE && map && map.getZoom() < 10;
+  if(CARTE) enRupture.forEach(s => {
+    const el = document.createElement('button');
+    el.type = 'button'; el.className = 'marqueur'; el.tabIndex = -1;
+    el.setAttribute('aria-label', `${brut(s.ville)} — rupture : ${brut(ruptureTxt(s))}`);
+    el.innerHTML = compact
+      ? `<div class="lbl lbl-ko pastille" title="${s.ville} — rupture : ${ruptureTxt(s)}">${ico('croix')}</div>`
+      : `<div class="lbl lbl-ko">${ks.filter(k => koDe(s, k)).map(k => COURT[k]).join(' · ')} ${ks.some(k => signaleVide(s, k)) ? 'vide (signalé)' : 'en rupture'}</div>`;
+    el.addEventListener('click', e => { e.stopPropagation(); ouvrirStation({s, v: null}, el); });
+    MARQUEURS.push(CARTE.marqueur(s.la, s.lo, el));
+  });
+  const nKo = enRupture.length;
   majCompte = t => {
     $('compte').textContent =
       `${n} station${n>1?'s':''} ${ROUTE ? 'sur le trajet, dans la zone affichée' : 'dans la zone affichée'}` + t +
+      (nKo ? ` · ${nKo} en rupture (en gris)` : '') +
       (tronque ? ` · ${tronque} de plus non chargée${tronque>1?'s':''} (plafond ${PLAFOND})` : '');
-    $('titreStations').textContent = `Stations du couloir (${n})`;
+    $('titreStations').textContent = `Stations du trajet (${n})`;
     majEtat();
   };
   majCompte('');
   if(!n){
+    const ko = nKo ? ` ${nKo} station${nKo>1?'s':''} en rupture, en gris sur la carte.` : '';
     liste.innerHTML = ROUTE
-      ? '<li class="vide">Aucune station du couloir ne sert cette combinaison dans la zone affichée — dézoomez, élargissez le couloir, ou décochez un carburant.</li>'
-      : '<li class="vide">Aucune station ne sert cette combinaison dans la zone affichée — dézoomez, déplacez la carte, ou décochez un carburant.</li>';
-    return;
+      ? `<li class="vide">Aucune station du trajet ne sert cette combinaison dans la zone affichée — dézoomez, acceptez un détour plus grand, ou décochez un carburant.${ko}</li>`
+      : `<li class="vide">Aucune station ne sert cette combinaison dans la zone affichée — dézoomez, déplacez la carte, ou décochez un carburant.${ko}</li>`;
+    // En itineraire, le plan porte sur TOUT le trajet : il reste affiche meme si la zone
+    // affichee ne montre aucune station (zoom sur une ville, detour etroit). Avant le
+    // 26/10/2026, la carte du plan disparaissait alors entierement.
+    if(!ROUTE) return;
   }
 
   const px = list.map(o => o.v.p);
@@ -479,7 +577,8 @@ function rendu(){
         if(!x.occ || !x.occ.length) return;
         const v = pick(x, sel);
         if(!v) return;
-        x.occ.forEach(o => candTous.push({s: x, v, km: o.km, e: o.d, p: v.lignes[0].prix}));
+        const fige = prixFige(x, v.lignes.map(l => l.ref));
+        x.occ.forEach(o => candTous.push({s: x, v, km: o.km, e: o.d, p: v.lignes[0].prix, fige, risque: fige ? RISQUE_FIGE : 0}));
       });
       candTous.sort((a,b) => a.km - b.km);
       const cand = candTous.filter(c => c.e <= larg);
@@ -489,15 +588,51 @@ function rendu(){
       const voyage = coutVoyage(cand, r, total, lkm);
       const eco = economieVsPlusCher(cand, A, total, lkm, voyage, {g0});             // vs le plus cher du couloir
       const notrePrix = prixMoyen(r, lkm, g0);                                         // €/L reellement paye
-      // Le cout depend de la largeur du couloir : plus large, plus de stations pas cheres
-      // candidates — mais des detours plus longs. Comparatif sur les memes donnees
-      // (chargees a 20 km quoi qu'il arrive).
-      const comparatif = [1, 2, 5, 10, 20].map(w => {
-        const cw = candTous.filter(c => c.e <= w);
-        return {w, v: coutVoyage(cw, optimiserPlan(cw, A, total, lkm, {g0}), total, lkm)};
-      });
       // Temps perdu : ~5 min par arret + le detour parcouru a ~50 km/h.
       const minutes = e => 5 + (2 * e.e) / 50 * 60;
+      // Faire un detour ? (Eric, 26/10/2026 : plus de selecteur de couloir dans le
+      // formulaire ; « quatre possibilités avec l'écart de prix et le temps de détour, si ça
+      // vaut le coup ».) Le plan est refait pour 1, 2, 5, 10 et 20 km de la route, sur les
+      // memes donnees (chargees a 20 km quoi qu'il arrive). Ne restent que les choix utiles :
+      // faisables, et aucun autre a la fois aussi rapide et moins cher (a egalite, le plus
+      // proche de la route) ; quatre au plus, du plus rapide au moins cher. Temps compte
+      // contre le plus rapide. « Conseillé » : en partant du plus rapide, on accepte chaque
+      // detour plus long tant qu'il rapporte au moins VALEUR_HEURE €/h de detour en plus.
+      // Le plein de depart se fait a la moins chere a 15 km du depart (cf. optimiserPlan) :
+      // s'y rendre est un detour aussi, compte dans le temps des choix — sans lui, « 5 km »
+      // (Grabels, hors de la route) paraissait aussi rapide que « Sans détour » et l'effacait
+      // (constate le 26/10/2026, Montpellier > Clermont-Ferrand). Rien si « Réservoir au départ ».
+      const detourDepart = cw => {
+        const pres0 = aBord != null ? [] : cw.filter(c => c.km <= 15);
+        const pres = pres0.some(c => !c.risque) ? pres0.filter(c => !c.risque) : pres0;
+        if(!pres.length) return 0;
+        const pmin = Math.min(...pres.map(c => c.p));
+        return (2 * Math.min(...pres.filter(c => c.p <= pmin + 1e-9).map(c => c.e))) / 50 * 60;
+      };
+      let detours = [1, 2, 5, 10, 20].map(w => {
+        const cw = candTous.filter(c => c.e <= w);
+        const rw = optimiserPlan(cw, A, total, lkm, {g0});
+        const v = coutVoyage(cw, rw, total, lkm);
+        return rw.plan == null || v == null ? null
+          : {w, v, min: rw.plan.reduce((t, e) => t + minutes(e), 0) + detourDepart(cw), arrets: rw.plan.length};
+      }).filter(Boolean);
+      detours = detours.filter((o, i) => !detours.some((p, j) => j !== i &&
+        p.v <= o.v + 0.05 && p.min <= o.min + 0.5 && (p.v < o.v - 0.05 || p.min < o.min - 0.5 || j < i)));
+      detours.sort((a, b) => a.min - b.min || a.v - b.v);
+      while(detours.length > 4){    // garder quatre : retirer celui qui fait le moins gagner
+        let k = 1;
+        for(let i = 2; i < detours.length; i++)
+          if(detours[i - 1].v - detours[i].v < detours[k - 1].v - detours[k].v) k = i;
+        detours.splice(k, 1);
+      }
+      let dConseil = detours[0] || null;
+      detours.slice(1).forEach(o => {
+        if(dConseil.v - o.v >= Math.max(0, o.min - dConseil.min) * VALEUR_HEURE / 60) dConseil = o;
+      });
+      if(DETOUR_AUTO && dConseil && dConseil.w !== larg){
+        $('couloir').value = String(dConseil.w);
+        return rendu();             // une seule fois : au tour suivant, larg === dConseil.w
+      }
       const tempsTotal = (plan || []).reduce((t, e) => t + minutes(e), 0);
       // Ou faire le plein avant de partir (15 km du depart) ; en aller simple, ou le refaire
       // en arrivant. En aller-retour, le plein du retour est une ETAPE du plan.
@@ -561,6 +696,35 @@ function rendu(){
         return li;
       };
       const nomVille = s => brut(s.ville);
+      // Date du prix (des 1 jour ; rouge a 4 jours, comme la fiche), alerte « prix fige », et
+      // secours : si la pompe est vide, la station la plus proche atteignable avec ce qui reste
+      // (route ~ 1,3 x vol d'oiseau), prix figes evites ; « Pompe vide ? » refait le plan sans elle.
+      const datePrix = c => {
+        const m = c.v.maj; if(!m) return null;
+        const j = (Date.now() - new Date(m)) / 864e5;
+        return j >= 1 ? el('span', 'lt-date' + (j >= 4 ? ' vieux' : ''), ` · prix du ${jour(m)}`) : null;
+      };
+      const alerteFige = c => c.fige ? el('span', 'lt-alerte', svg('alerte'),
+        ` prix figé depuis le ${jour(c.fige)} alors que la station déclare ses autres carburants : à vérifier avant d'y aller`) : null;
+      const repli = (c, portee) => {
+        let best = null;
+        candTous.forEach(x => {
+          if(x.s === c.s || x.km < c.km - 25) return;
+          const d = kmEntre(c.s, x.s) * 1.3;
+          if(d > portee) return;
+          const cle = d + (x.risque ? 50 : 0);
+          if(!best || cle < best.cle - 0.3 || (Math.abs(cle - best.cle) <= 0.3 && x.p < best.x.p)) best = {x, d, cle};
+        });
+        return best;
+      };
+      const secours = (c, portee) => {
+        const b = bouton('lt-vide', 'Pompe vide ?', () => corriger(c.s, c.v.lignes.map(l => l.ref), {vide: true}), 'alerte');
+        b.setAttribute('aria-label', `Pompe vide à ${nomVille(c.s)} : refaire le plan sans elle`);
+        const r = repli(c, portee);
+        if(!r) return [b, ' si c\'est vide : aucune autre station à portée'];
+        const adr = brut(r.x.s.adresse).slice(0, 34);
+        return [b, ` si c'est vide : ${nomVille(r.x.s)}${adr ? `, ${adr}` : ''} à ≈ ${r.d < 1 ? '1' : Math.round(r.d)} km · `, ...chipPrix(r.x)];
+      };
       // Carburant a bord a un km donne, reserve comprise : ce qu'on a au depart puis, apres
       // chaque arret, ce qui y etait en arrivant + ce qui y a ete achete (« juste » ou plein).
       const restante = km => {
@@ -573,16 +737,18 @@ function rendu(){
         ol.setAttribute('aria-label', 'Étapes du plan');
         ol.append(item('lt-depart', {plein: true, txt: ''}, aBord != null ? `Départ · réservoir ≈ ${Math.round(aBord)} km${aBordL ? ` (${aBordBrut} L)` : ''}` : 'Départ · plein',
           aBord != null ? [] :
-          depart ? [[nomVille(depart.s), ' · km ', String(Math.round(depart.km)), ' · ', ...chipPrix(depart)]]
-                 : ['aucune station à moins de 15 km du départ dans ce couloir — partez le réservoir plein'],
+          depart ? [[nomVille(depart.s), ' · km ', String(Math.round(depart.km)), ' · ', ...chipPrix(depart), datePrix(depart)],
+                    alerteFige(depart), secours(depart, 30)]
+                 : ['aucune station à moins de 15 km du départ avec ce détour — partez le réservoir plein'],
           aBord == null && depart ? depart.s : null));
         const etapes = plan || [];
         const ajouterEtapes = (de, a) => etapes.forEach((e, i) => {
           if(e.km < de || e.km >= a) return;
           ol.append(item('lt-etape', {txt: String(i + 1)}, `Étape ${i + 1} — ${nomVille(e.s)}`,
-            [[`km ${Math.round(e.km)} · `, ...chipPrix(e)],
+            [[`km ${Math.round(e.km)} · `, ...chipPrix(e), datePrix(e)],
              `${e.plein ? 'le plein' : 'juste ce qu\'il faut'} : ≈ ${Math.round(e.litres)} L (${euros(e.p * lkm * e.q)}) · à bord en arrivant ≈ ${Math.round(e.arrivee + reserve)} km`,
-             `détour ${(2 * e.e).toFixed(1).replace('.', ',')} km (+${euros(2 * e.e * lkm * e.p)}) · ≈ ${Math.round(minutes(e))} min`],
+             `détour ${(2 * e.e).toFixed(1).replace('.', ',')} km (+${euros(2 * e.e * lkm * e.p)}) · ≈ ${Math.round(minutes(e))} min`,
+             alerteFige(e), secours(e, e.arrivee + reserve)],
             e.s));
         });
         if(ROUTE_AR){
@@ -598,35 +764,49 @@ function rendu(){
             [`km ${Math.round(total)} · autonomie restante ≈ ${restante(total)} km`]));
           ol.append(item('lt-retour', {pause: true, txt: ''}, 'Retour — plein conseillé à l\'arrivée',
             pleinArrivee ? [[nomVille(pleinArrivee.s), ' · km ', String(Math.round(pleinArrivee.km)), ' · ', ...chipPrix(pleinArrivee)]]
-                         : ['aucune station à moins de 15 km de l\'arrivée dans ce couloir'],
+                         : ['aucune station à moins de 15 km de l\'arrivée avec ce détour'],
             pleinArrivee ? pleinArrivee.s : null));
         }
         return ol;
       };
-      // Mini-barres : carburant du voyage selon le couloir (hauteur ∝ cout) ; toucher une
-      // barre change le couloir — le select#couloir reste la source de verite.
-      const barres = () => {
-        const bloc = el('div', 'couloirs', el('p', 'couloirs-titre', 'Carburant du voyage selon le couloir'));
-        const grille = el('div', 'couloirs-barres');
-        grille.setAttribute('role', 'group'); grille.setAttribute('aria-label', 'Largeur du couloir');
-        const vals = comparatif.map(c => c.v).filter(v => v != null);
-        const vmax = vals.length ? Math.max(...vals) : 0;
-        comparatif.forEach(({w, v}) => {
-          const b = el('button', 'couloir-b');
-          b.type = 'button'; b.dataset.w = String(w);
-          b.setAttribute('aria-pressed', String(w === larg));
-          b.setAttribute('aria-label', `Couloir ${w} km, ${v == null ? 'infaisable' : euros(v)}`);
-          const barre = el('span', 'cb-barre' + (v == null ? ' ko' : ''));
-          if(v != null) barre.style.height = `${Math.max(6, Math.round(40 * v / vmax))}px`;
-          b.append(barre, el('span', 'cb-val', v == null ? '—' : euros(v)), el('span', 'cb-km', `${w} km`));
+      // Choix du detour : une ligne par possibilite, du plus rapide au moins cher —
+      // ce que l'on gagne, ce que l'on perd en minutes. Toucher une ligne refait le plan
+      // (select#couloir, cache, reste la source de verite : lien partage, liste, carte).
+      const choixDetour = () => {
+        if(!detours.length) return null;
+        const dRef = detours[0];
+        const dChoisi = detours.filter(o => o.w <= larg).pop() || null;   // aucun : plan courant infaisable
+        if(detours.length < 2 && dChoisi)
+          return el('p', 'detours-rien', svg('info'), dRef.w <= 2
+            ? ' Aucun détour ne ferait gagner d\'argent sur ce trajet.'
+            : ` Un détour jusqu'à ${dRef.w} km de la route est nécessaire ; aller plus loin ne ferait rien gagner.`);
+        const bloc = el('div', 'detours', el('p', 'detours-titre',
+          plan === null ? 'Possible avec un détour :' : 'Faire un détour pour payer moins ?'));
+        const liste = el('div', 'detours-liste');
+        liste.setAttribute('role', 'group'); liste.setAttribute('aria-label', 'Détour accepté');
+        detours.forEach(o => {
+          const titre = o === dRef ? (o.w <= 2 ? 'Sans détour' : 'Le moins de détour')
+                                   : `+${Math.max(1, Math.round(o.min - dRef.min))} min de détour`;
+          const gain = dRef.v - o.v, conseil = o === dConseil;
+          const b = el('button', 'detour-b' + (conseil ? ' conseil' : ''));
+          b.type = 'button'; b.setAttribute('aria-pressed', String(o === dChoisi));
+          b.append(el('span', 'db-rond'),
+                   el('span', 'db-titre', titre, conseil ? el('span', 'db-conseil', 'conseillé') : null),
+                   el('span', 'db-prix', euros(o.v)),
+                   el('span', 'db-sous', `${o.arrets ? `${o.arrets} arrêt${o.arrets > 1 ? 's' : ''}` : 'aucun arrêt'} · stations à ${o.w} km de la route au plus`),
+                   el('span', 'db-eco', o === dRef ? '' : `−${euros(gain)}`));
+          b.setAttribute('aria-label', `${titre}${conseil ? ', conseillé' : ''} : ${euros(o.v)}` +
+            (o === dRef ? '' : `, soit ${euros(gain)} de moins`));
           b.onclick = () => {
-            if($('couloir').value === String(w)) return;
-            $('couloir').value = String(w);
+            DETOUR_AUTO = false;      // choix de l'utilisateur : on ne le remplace plus
+            if($('couloir').value === String(o.w)) return;
+            $('couloir').value = String(o.w);
             $('couloir').dispatchEvent(new Event('change'));
           };
-          grille.append(b);
+          liste.append(b);
         });
-        bloc.append(grille);
+        bloc.append(liste, el('p', 'detours-note',
+          `« Conseillé » : chaque minute de détour en plus vous fait gagner au moins ${VALEUR_HEURE} € de l'heure.`));
         return bloc;
       };
       const chiffre = () => {
@@ -637,7 +817,7 @@ function rendu(){
         if(!eco) return null;
         // Notre prix moyen au litre, puis l'economie contre le plus cher du couloir (Eric, 24/10/2026).
         const notre = notrePrix != null ? `votre prix ${litre(notrePrix)} · ` : '';
-        if(Math.abs(eco.economie) < 0.05) return el('b', 'eco nulle', `${notre}prix unique dans le couloir (${litre(eco.prix)})`);
+        if(Math.abs(eco.economie) < 0.05) return el('b', 'eco nulle', `${notre}prix unique sur le trajet (${litre(eco.prix)})`);
         const signe = eco.economie > 0 ? '−' : '+';
         return el('b', 'eco' + (eco.economie > 0 ? '' : ' nulle'), `${notre}${signe}${euros(Math.abs(eco.economie))} vs pleins au plus cher (${litre(eco.prix)})`);
       };
@@ -645,41 +825,39 @@ function rendu(){
       if(plan === null){
         // Etat : infaisable — trois remedes cliquables.
         const actions = el('div', 'actions');
-        if(larg < 10) actions.append(bouton('btn', 'Élargir le couloir à 10 km', () => { $('couloir').value = '10'; $('couloir').dispatchEvent(new Event('change')); }));
-        if(larg < 20) actions.append(bouton('btn', larg < 10 ? 'Élargir à 20 km' : 'Élargir le couloir à 20 km', () => { $('couloir').value = '20'; $('couloir').dispatchEvent(new Event('change')); }));
+        if(detours.length) actions.append(bouton('btn primaire', 'Accepter un détour', () => { DETOUR_AUTO = true; rendu(); }));
         if(resv > 0){
           const cible = resv > 10 ? 10 : 0;
           actions.append(bouton('btn', `Réduire la réserve (${resv} → ${cible} km)`, () => { $('reserve').value = String(cible); $('reserve').dispatchEvent(new Event('change')); }));
         }
         actions.append(bouton('btn', 'Revoir l\'autonomie', () => ouvrirGarage('autonomie'), 'garage'));
-        heros.push(el('div', 'heros-etat ko', svg('alerte'), ' ', el('b', null, 'Trajet infaisable avec cette autonomie dans ce couloir'),
-          ` — ${Math.round(A)} km utiles pour ${Math.round(total)} km, couloir ${larg} km : aucune suite d'arrêts ne passe.`, actions));
-        heros.push(rappel, barres());
-        resume = `Plan de pleins : trajet infaisable avec ${Math.round(A)} km d'autonomie utile dans un couloir de ${larg} km.`;
+        heros.push(el('div', 'heros-etat ko', svg('alerte'), ' ', el('b', null, detours.length ? 'Trajet impossible sans détour' : 'Trajet infaisable avec cette autonomie'),
+          ` — ${Math.round(A)} km utiles pour ${Math.round(total)} km : avec les stations à ${larg} km de la route au plus, aucune suite d'arrêts ne passe.`, actions));
+        heros.push(choixDetour(), rappel);
+        resume = `Plan de pleins : trajet infaisable avec ${Math.round(A)} km d'autonomie utile et les stations à ${larg} km de la route au plus.`;
       }else if(!plan.length){
         // Etat : aucun arret necessaire.
         heros.push(el('div', 'heros-etat ok', el('b', null, 'Aucun arrêt nécessaire'),
           ` — ${Math.round(total)} km pour ${Math.round(g0)} km utiles${aBord != null ? ' dans le réservoir au départ : ce que vous avez suffit.' : ' : un plein au départ suffit.'}`));
         heros.push(chiffre());
         heros.push(el('p', 'heros-sous', '0 arrêt · ', ligneEco()));
-        heros.push(rappel, ligneTemps());
+        heros.push(choixDetour(), rappel, ligneTemps());
         const lst = [...list].filter(o => moinsCheres.has(o.s)).sort((a,b) => a.v.p - b.v.p || a.s.ecart - b.s.ecart);
         if(lst.length){
           const ul = el('ul', 'liste-min');
           lst.forEach(o => ul.append(el('li', null, el('b', null, nomVille(o.s)), ` km ${Math.round(o.s.kmr)}, détour ${(2 * o.s.ecart).toFixed(1).replace('.', ',')} km · `, ...chipPrix(o))));
-          heros.push(el('p', 'heros-rappel', 'Pour un plein en route, les moins chères du couloir dans la zone affichée :'), ul);
+          heros.push(el('p', 'heros-rappel', 'Pour un plein en route, les moins chères du trajet dans la zone affichée :'), ul);
         }
-        heros.push(barres());
         resume = `Plan de pleins : aucun arrêt nécessaire${voyage != null ? `, carburant du voyage ${euros(voyage)}` : ''}.`;
       }else{
         heros.push(chiffre());
         heros.push(el('p', 'heros-sous', `${plan.length} arrêt${plan.length > 1 ? 's' : ''} · ≈ ${Math.round(tempsTotal)} min · `, ligneEco()));
-        heros.push(rappel, ligneTemps(), barres());
+        heros.push(choixDetour(), rappel, ligneTemps());
         resume = `Plan de pleins : ${plan.length} arrêt${plan.length > 1 ? 's' : ''}${voyage != null ? `, carburant du voyage ${euros(voyage)}` : ''}` +
-                 (eco && Math.abs(eco.economie) >= 0.05 ? `, ${eco.economie > 0 ? 'économie' : 'surcoût'} de ${euros(Math.abs(eco.economie))} par rapport au plus cher du couloir` : '') + '.';
+                 (eco && Math.abs(eco.economie) >= 0.05 ? `, ${eco.economie > 0 ? 'économie' : 'surcoût'} de ${euros(Math.abs(eco.economie))} par rapport au plus cher du trajet` : '') + '.';
       }
     }
-    elPlan.replaceChildren(...heros);
+    elPlan.replaceChildren(...heros.filter(Boolean));
     // Region aria-live : un resume court, mis a jour seulement s'il change (le plan est
     // redessine a chaque deplacement de la carte : pas de repetition au lecteur d'ecran).
     if($('planEtat').textContent !== resume) $('planEtat').textContent = resume;
@@ -698,9 +876,10 @@ function rendu(){
     }
   }
   if(!tri.length){
+    if(!n) return;   // message deja pose plus haut (aucune station dans la zone affichee)
     // Deux causes possibles, deux messages : le filtre du plan, ou le masque des cheres.
     liste.innerHTML = horsPlan
-      ? '<li class="vide">Aucune station du plan dans la zone affichée — dézoomez, ou désactivez « Seulement les arrêts du plan » pour voir tout le couloir.</li>'
+      ? '<li class="vide">Aucune station du plan dans la zone affichée — dézoomez, ou désactivez « Seulement les arrêts du plan » pour voir toutes les stations du trajet.</li>'
       : '<li class="vide">Toutes les stations de la zone sont dans les 10 % les plus chères du secteur — désactivez « Masquer les trop chères » (options) pour les voir.</li>';
     return;
   }
@@ -791,16 +970,47 @@ function ouvrirStation(o, origine){
   $('fsInfos').innerHTML =
     (s.auto ? `<span>${ico('horloge')} automate 24 h/24</span>` : '') +
     `<span>${ico('epingle')} ${ROUTE && s.ecart != null ? `${s.ecart.toFixed(1)} km du trajet · km ${Math.round(s.kmr)}` : `${s.d.toFixed(1)} km du repère`}</span>` +
-    (s.rupture ? `<span class="ko-lbl">${ico('alerte')} rupture : ${s.rupture}</span>` : '');
+    (s.rupture || aSignalement(s) ? `<span class="ko-lbl">${ico('alerte')} rupture : ${ruptureTxt(s)}</span>` : '');
+  // Chaque carburant : « Corriger » ouvre, sous la ligne, le prix vu a la pompe, « Pompe vide »
+  // et « Revenir au déclaré » (corrections gardees sur cet appareil, voir corriger()).
   $('fsCarbs').innerHTML = FUELS.filter(([k]) => s.prix[k] != null).map(([k,l]) => {
-    const q = quand(s.maj[k]);
-    const ko = s.hs.has(RUPT[k]);
-    return `<li class="${utilises.includes(k) ? 'hi' : ''}${ko ? ' ko' : ''}"><span>${l}`+
-           `${ko ? ' <span class="ko-lbl">(en rupture)</span>' : ''}</span>`+
-           `<span class="dt${q.vieux ? ' vieux' : ''}">${q.txt}</span>`+
-           `<b>${s.prix[k].toFixed(3)} €</b></li>`;
+    const q = quand(s.maj[k]), c = s.corr[k];
+    const ko = s.hs.has(RUPT[k]) || signaleVide(s, k);
+    const etat = signaleVide(s, k) ? ' <span class="ko-lbl">(signalée vide)</span>'
+               : s.hs.has(RUPT[k]) ? ' <span class="ko-lbl">(en rupture)</span>'
+               : c && c.prix != null ? ' <span class="corr-lbl">(corrigé)</span>' : '';
+    return `<li class="${utilises.includes(k) ? 'hi' : ''}${ko ? ' ko' : ''}"><span>${l}${etat}</span>`+
+           `<span class="dt${q.vieux ? ' vieux' : ''}">${c && c.prix != null ? `vu à ${hhmm(c.t)}` : q.txt}</span>`+
+           `<b>${s.prix[k].toFixed(3)} €</b>`+
+           `<button type="button" class="fs-edit" data-k="${k}" aria-label="Corriger : ${l}">${ico('crayon')}</button></li>`;
   }).join('') || '<li>Aucun prix déclaré.</li>';
+  $('fsCarbs').querySelectorAll('.fs-edit').forEach(b => b.onclick = () => editerCarburant(s, b.dataset.k, b.closest('li')));
   ouvrirFeuille('ficheStation', origine);
+}
+function editerCarburant(s, k, li){
+  $('fsCarbs').querySelectorAll('.fs-corr').forEach(x => x.remove());
+  const c = s.corr[k];
+  const btn = (txt, cls, f) => { const b = document.createElement('button'); b.type = 'button'; b.className = cls; b.textContent = txt; b.onclick = f; return b; };
+  const box = document.createElement('li'); box.className = 'fs-corr';
+  const lab = document.createElement('label'); lab.textContent = 'Prix vu à la pompe ';
+  const inp = document.createElement('input');
+  inp.type = 'number'; inp.step = '0.001'; inp.min = '0.3'; inp.max = '5'; inp.inputMode = 'decimal';
+  inp.value = s.prix[k] != null ? s.prix[k].toFixed(3) : '';
+  lab.append(inp, ' €/L');
+  const actions = document.createElement('div'); actions.className = 'actions';
+  actions.append(
+    btn('Enregistrer le prix', 'btn primaire', () => {
+      const v = parseFloat(String(inp.value).replace(',', '.'));
+      if(!(v > 0.3 && v < 5)){ inp.focus(); return; }
+      corriger(s, [k], {prix: v});
+    }),
+    btn(signaleVide(s, k) ? 'Elle en a de nouveau' : 'Pompe vide', 'btn', () => corriger(s, [k], signaleVide(s, k) ? null : {vide: true})));
+  if(c && c.prix != null) actions.append(btn('Revenir au prix déclaré', 'btn', () => corriger(s, [k], null)));
+  const note = document.createElement('p'); note.className = 'note';
+  note.textContent = 'Gardé sur cet appareil, tant que la station ne déclare rien de plus récent (48 h au plus).';
+  box.append(lab, actions, note);
+  li.after(box);
+  inp.focus();
 }
 $('fsCopier').onclick = async () => {
   if(!STATION) return;
@@ -1012,7 +1222,7 @@ let IMPORT_HASH = false, TRAJET_IMPORT = null;
     const f = parts.trajet.split('|');
     const arr = dec(f[1] || '').trim(), dep = dec(f[0] || '').trim();
     if(arr){
-      $('depart').value = dep;                 // vide = « Ma position » (le repere courant)
+      $('depart').value = dep || 'Ma position'; // vide = « Ma position » (le repere courant)
       $('arrivee').value = arr;
       if(['1', '2', '5', '10', '20'].includes(f[2])){ $('couloir').value = f[2]; REGL.couloir = f[2]; }
       const o = f[3] || '';
@@ -1059,6 +1269,37 @@ function clauseVue(){
     : ` and ${k}_prix is not null`).join('');
 }
 
+// Stations en rupture du carburant choisi. Le flux vide le prix pendant la rupture :
+// la station sort de la requete principale et semblait « oubliee ». Constate le
+// 26/10/2026 : Le Bosc (A75), E85 en rupture depuis le 04/09, Waze affichait encore
+// son prix de mars (0,714). On les redemande a part pour les montrer en gris avec la
+// date ; elles restent hors classement, hors couleurs et hors plan.
+// Seulement les ruptures TEMPORAIRES de moins de 90 jours : le flux garde des
+// « temporaires » ouvertes depuis 2017 (5 230 ruptures E85 au 26/10/2026, dont 4 542
+// definitives et 377 temporaires recentes) — au-dela, la station ne vend plus ce
+// carburant et la montrer ne ferait que du bruit.
+const RUPT_JOURS = 90;
+const seuilRupture = () => new Date(Date.now() - RUPT_JOURS*864e5).toISOString().slice(0,10);
+const recente = (s, k, seuil) => s.kotype[k] === 'temporaire' && s.depuis[k] >= seuil;
+const SEL_KO = encodeURIComponent("__SELECT__" +
+  FUELS.map(([k]) => `,${k}_rupture_debut,${k}_rupture_type`).join(''));
+const kosVoulus = sel => [...new Set(sel.flatMap(k => k === 'spmin' ? SP.map(([kk]) => kk) : [k]))];
+async function chargerRuptures(zones, sel){
+  const ks = kosVoulus(sel), seuil = seuilRupture();
+  if(!ks.length) return [];
+  const clause = ' and (' + ks.map(k =>
+    `(${k}_rupture_type='temporaire' and ${k}_rupture_debut >= date'${seuil}')`).join(' or ') + ')';
+  const lots = await Promise.all(zones.map(async z => {
+    const w = encodeURIComponent(`in_bbox(geom, ${z.s.toFixed(5)}, ${z.w.toFixed(5)}, ` +
+                                 `${z.n.toFixed(5)}, ${z.e.toFixed(5)})` + clause);
+    const r = await fetch(`${URL_API}?where=${w}&select=${SEL_KO}&limit=100`, {signal: AbortSignal.timeout(20000)});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return (await r.json()).results;
+  }));
+  const vus = new Set();
+  return normalise(lots.flat().filter(r => !vus.has(r.id) && vus.add(r.id)));
+}
+
 // Decoupe le trace en emprises courtes. Sur un long trajet, une seule bbox
 // englobante couvre un quart de la France : le plafond tombait alors sur des
 // stations tirees au hasard par l'API et le couloir revenait presque vide
@@ -1094,6 +1335,8 @@ async function charger(){
                       : [emprise()];
   // choisie filtre localement, et le comparatif par largeur se fait sans recharger.
   const clause = clauseVue();
+  // Accessoire et en parallele : une panne ici ne bloque jamais les prix.
+  const ko = chargerRuptures(zones, choix()).catch(() => []);
   etatPrix = 'chargement…'; majEtat();
   try{
     let rows = [], reste = 0;
@@ -1116,12 +1359,16 @@ async function charger(){
     tronque = reste;
     DATA = normalise(rows);
     if(ROUTE) DATA = DATA.filter(situerSurTrace);
+    const kos = await ko;
+    if(mien !== seq) return;
+    RUPTURES = ROUTE ? kos.filter(situerSurTrace) : kos;
     etatPrix = 'prix en direct · ' + new Date().toLocaleString('fr-FR',
       {weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
   }catch(e){
     if(mien !== seq) return;
     const vis = emprise();
     DATA = normalise(SNAPSHOT).filter(s => dansEmprise(vis, s.la, s.lo));
+    RUPTURES = [];
     tronque = 0;
     etatPrix = '<span class="ko">hors ligne</span> — relevé du ' + SNAP_DATE;
   }
@@ -1291,6 +1538,10 @@ async function lireJson(u){
   return r.json();
 }
 let ROUTE = null;        // [[lon,lat], …] simplifie ; en aller-retour : aller puis retour (boucle)
+// Detour : a chaque trajet lance a la main, le plan affiche d'office le detour
+// « conseillé » (voir rendu) ; un choix de l'utilisateur, ou un lien partage, le fige.
+let DETOUR_AUTO = false;
+const VALEUR_HEURE = 10;   // €/h : en dessous, un detour ne « vaut pas le coup » (repere affiche)
 let I_RETOUR = null;     // indice du premier point du retour dans ROUTE (null : aller simple)
 let ALLER_KM = null;     // km de l'arrivee sur la boucle (null : aller simple)
 let ROUTE_AR = false;    // le trajet affiche est un aller-retour
@@ -1413,8 +1664,9 @@ $('trajetsMemo').onchange = e => {
   const t = trajetsLus()[+e.target.value];
   e.target.value = '';
   if(!t) return;
-  $('depart').value = t.dep || '';
+  $('depart').value = t.dep || 'Ma position';
   $('arrivee').value = t.arr || '';
+  majMoi();
   $('sansPeage').checked = !!t.sansPeage;
   $('allerRetour').checked = !!t.ar;
   $('trajet').requestSubmit();
@@ -1445,6 +1697,101 @@ function majPilule(){
   const c = trajetCourant();
   $('piluleTxt').textContent = ROUTE && c.arr ? `${c.dep || 'Ma position'} ${c.ar ? '⇄' : '→'} ${c.arr}` : 'Où allez-vous ?';
 }
+
+// ---------- Depart « Ma position » et lieux recents (Eric, 26/10/2026) ----------
+// « Garde en mémoire les entrées de type Où allez-vous, genre Orléans, quitte à l'effacer ;
+// départ avec ma position présélectionnée mais modifiable. »
+// Depart : « Ma position » ecrit d'office (en bleu), tout selectionne au toucher — taper
+// remplace ; laisse vide, il y revient. Lieux : chaque trajet lance a la main retient son
+// arrivee (et son depart s'il n'est pas « Ma position »), 8 au plus, le dernier en tete ;
+// proposes sous le champ actif (filtres par la saisie), un toucher les reprend — sur
+// l'arrivee, le trajet part aussitot —, la croix les efface. Stockes dans ce navigateur
+// seulement, rendus en texte (jamais en HTML).
+const CLE_LIEUX = 'fuelpilot:lieux';
+const lieuxLus = () => {
+  try{ const t = JSON.parse(localStorage.getItem(CLE_LIEUX)); return Array.isArray(t) ? t.filter(x => typeof x === 'string') : []; }
+  catch(e){ return []; }
+};
+const lieuxEcrits = l => { try{ localStorage.setItem(CLE_LIEUX, JSON.stringify(l)); }catch(e){ /* stockage refuse */ } };
+function retenirLieux(arr, dep){
+  let l = lieuxLus();
+  for(const q of [dep, arr]){           // l'arrivee finit en tete
+    const v = String(q || '').trim();
+    if(!v || maPosition(v)) continue;
+    l = [v, ...l.filter(x => x.toLowerCase() !== v.toLowerCase())];
+  }
+  lieuxEcrits(l.slice(0, 8));
+}
+const majMoi = () => ['depart', 'arrivee'].forEach(id =>
+  $(id).classList.toggle('moi', !!$(id).value.trim() && maPosition($(id).value)));
+let CHAMP_ACTIF = null;
+function majSuggestions(){
+  const ul = $('suggestions'), c = CHAMP_ACTIF;
+  if(!c){ ul.hidden = true; return; }
+  const q = maPosition(c.value) ? '' : c.value.trim().toLowerCase();
+  const items = [];
+  if(c.id === 'depart' && !maPosition(c.value)) items.push({moi: true});
+  lieuxLus().filter(x => x.toLowerCase().includes(q) && x.toLowerCase() !== q)
+            .forEach(x => items.push({lieu: x}));
+  const garder = e => e.preventDefault();   // le champ garde le focus
+  ul.replaceChildren(...items.map(it => {
+    const li = document.createElement('li');
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'sugg' + (it.moi ? ' moi' : '');
+    b.innerHTML = ico(it.moi ? 'viseur' : 'horloge');
+    const t = document.createElement('span'); t.textContent = it.moi ? 'Ma position' : it.lieu;
+    b.append(t); b.onpointerdown = garder;
+    b.onclick = () => {
+      c.value = it.moi ? 'Ma position' : it.lieu;
+      c.dispatchEvent(new Event('input'));
+      CHAMP_ACTIF = null; majSuggestions(); majMoi();
+      if(c.id === 'arrivee') $('trajet').requestSubmit(); else $('arrivee').focus();
+    };
+    li.append(b);
+    if(it.lieu){
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'sugg-x'; x.innerHTML = ico('croix');
+      x.setAttribute('aria-label', `Effacer « ${it.lieu} » des lieux récents`);
+      x.onpointerdown = garder;
+      x.onclick = () => { lieuxEcrits(lieuxLus().filter(y => y !== it.lieu)); majSuggestions(); };
+      li.append(x);
+    }
+    return li;
+  }));
+  ul.hidden = !items.length;
+}
+// Fleches haut/bas entre les lieux proposes ; Echap ou haut sur le premier = retour au champ.
+$('suggestions').addEventListener('keydown', e => {
+  const bs = [...$('suggestions').querySelectorAll('.sugg')], i = bs.indexOf(document.activeElement);
+  if(e.key === 'ArrowDown' && i >= 0){ e.preventDefault(); (bs[i + 1] || bs[i]).focus(); }
+  else if(e.key === 'ArrowUp' && i >= 0){ e.preventDefault(); (i ? bs[i - 1] : CHAMP_ACTIF || $('arrivee')).focus(); }
+  else if(e.key === 'Escape'){ e.stopPropagation(); const c = CHAMP_ACTIF || $('arrivee'); c.focus(); CHAMP_ACTIF = null; majSuggestions(); }
+});
+$('suggestions').addEventListener('focusout', () => setTimeout(() => {
+  const a = document.activeElement;
+  if(!$('suggestions').contains(a) && a !== $('depart') && a !== $('arrivee')){ CHAMP_ACTIF = null; majSuggestions(); }
+}, 150));
+['depart', 'arrivee'].forEach(id => {
+  const c = $(id);
+  c.addEventListener('focus', () => {
+    CHAMP_ACTIF = c; majSuggestions();
+    if(id === 'depart' && maPosition(c.value)) setTimeout(() => c.select(), 0);
+  });
+  c.addEventListener('input', () => { if(CHAMP_ACTIF === c) majSuggestions(); majMoi(); });
+  // Clavier : fleche bas = premier lieu propose, Echap = fermer la liste.
+  c.addEventListener('keydown', e => {
+    if(e.key === 'ArrowDown' && !$('suggestions').hidden){ e.preventDefault(); $('suggestions').querySelector('.sugg').focus(); }
+    else if(e.key === 'Escape' && !$('suggestions').hidden){ e.stopPropagation(); CHAMP_ACTIF = null; majSuggestions(); }
+  });
+  c.addEventListener('blur', () => {
+    if(id === 'depart' && !c.value.trim()){ c.value = 'Ma position'; majMoi(); }
+    // Au clavier, le focus peut passer dans la liste : on la garde ouverte.
+    setTimeout(() => { if(!$('suggestions').contains(document.activeElement) && document.activeElement !== $('depart') &&
+                          document.activeElement !== $('arrivee')){ CHAMP_ACTIF = null; majSuggestions(); } }, 150);
+  });
+});
+if(!$('depart').value.trim()) $('depart').value = 'Ma position';
+majMoi();
 
 // Itineraire IGN entre deux points. « Sans péage » : moteur bdtopo-pgr + interdiction
 // des autoroutes (verifie le 09/08 : la contrainte est IGNOREE par bdtopo-osrm, respectee
@@ -1546,6 +1893,7 @@ async function calculerTrajet(ev){
     preparerKms();
     ALLER_KM = iRetour != null ? KMS[iRetour] : null;
     const c = trajetCourant();
+    DETOUR_AUTO = !sansGeste;   // lien partage : on garde son detour
     TRAJET = {dep: c.dep || 'Ma position', arr: c.arr || 'Ma position', ar: !!retour, sansP,
               km: (aller.distance + (retour ? retour.distance : 0)) / 1000,
               min: (aller.duration + (retour ? retour.duration : 0)) / 60};
@@ -1569,6 +1917,7 @@ async function calculerTrajet(ev){
       `${sansP ? (MOTEUR === 'osm' ? ' · sans péage' : ' · sans autoroute') : ''}${ar ? ' · aller-retour' : ''}`+
       ` · ${a.label} ${ar ? '⇄' : '→'} ${b.label}${MOTEUR === 'osm' ? ' · tracé OpenStreetMap (IGN muette)' : ''}`;
     $('effacer').hidden = false;
+    if(!sansGeste) retenirLieux($('arrivee').value, $('depart').value);
     majTrajets(); majPilule();
     replierStations(true);
     if(MOBILE.matches){ rechercheOuverte(false); deplier('moitie'); }
@@ -1587,6 +1936,8 @@ $('trajet').onsubmit = calculerTrajet;
 $('inverser').onclick = () => {
   const d = $('depart'), a = $('arrivee');
   [d.value, a.value] = [a.value, d.value];
+  if(!d.value.trim()) d.value = 'Ma position';
+  majMoi();
   if(ROUTE) $('trajet').requestSubmit();
 };
 $('effacer').onclick = () => {

@@ -200,3 +200,22 @@ test('economie : infaisable ou voyage non chiffrable -> null', () => {
   assert.strictEqual(economieVsPlusCher([], 100, 150, 1, null), null);
   assert.strictEqual(economieVsPlusCher([st('S', 5, 1)], 100, 150, 1, 10), null);   // infaisable au plus cher aussi
 });
+
+// ---- Prix fige (26/10/2026) : surcout fictif « risque » par arret ----
+
+test('prix fige : la station a risque est evitee quand une autre fait l\'affaire', () => {
+  // A = 100, total 150 : un arret entre km 50 et 100. X (km 60) a 1,00 mais prix fige (risque 15),
+  // Y (km 70) a 1,10 sans risque. Sans risque, X gagne ; avec, Y (surcout reel 0,10 x ~50 < 15).
+  const X = Object.assign(st('X', 60, 1.0), {risque: 15}), Y = st('Y', 70, 1.1);
+  const r = optimiserPlan([st('D', 0, 1.2), X, Y], 100, 150, 1);
+  assert.deepStrictEqual(r.plan.map(e => e.s), ['Y']);
+  // Seule station possible : on y passe quand meme (le risque n'interdit pas).
+  const r2 = optimiserPlan([st('D', 0, 1.2), X], 100, 150, 1);
+  assert.deepStrictEqual(r2.plan.map(e => e.s), ['X']);
+});
+
+test('pleinsExtremites : une station a prix fige n\'est retenue que s\'il n\'y a qu\'elle', () => {
+  const X = Object.assign(st('X', 5, 1.0), {risque: 15}), Y = st('Y', 8, 1.1);
+  assert.strictEqual(pleinsExtremites([X, Y], 200).depart.s, 'Y');
+  assert.strictEqual(pleinsExtremites([X], 200).depart.s, 'X');
+});

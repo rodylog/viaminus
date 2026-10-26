@@ -47,7 +47,8 @@ function optimiserPlan(candTous, A, total, lkm, opts = {}){
   const n = cand.length, FIN = n;
   // Prix du plein de depart : la moins chere a 15 km du depart ; a defaut, la premiere etape
   // du plan (c'est la qu'on fera le plein), a defaut la moins chere du couloir.
-  const pd15 = opts.pd != null ? opts.pd : prixBout(candTous, c => c.km <= 15);
+  const pd15 = opts.pd != null ? opts.pd
+    : (prixBout(candTous, c => c.km <= 15 && !c.risque) ?? prixBout(candTous, c => c.km <= 15));
   const pdDefaut = plan => pd15 != null ? pd15 : (plan && plan.length ? plan[0].p : prixBout(candTous, () => true));
   // g0 : carburant a bord au depart (km utiles) ; defaut A = on part le plein fait. S'il est
   // plus bas, la station du depart n'est qu'un candidat parmi d'autres : le plan y fait le
@@ -85,9 +86,10 @@ function optimiserPlan(candTous, A, total, lkm, opts = {}){
       if(j < 0){ if(L <= g) sur(k, c, 'depart', 0, g - L); continue; }   // le carburant du depart emmene jusqu'en k
       const p = cand[j].p;
       const qJ = L - g;                                        // juste ce qu'il faut
-      if(qJ > 1e-9) sur(k, c + p * lkm * qJ + ARRET, 'juste', qJ, 0);
+      const risque = cand[j].risque || 0;                    // surcout fictif (prix fige, cf. app.js)
+      if(qJ > 1e-9) sur(k, c + p * lkm * qJ + ARRET + risque, 'juste', qJ, 0);
       const qP = A - g;                                        // le plein
-      if(qP > 1e-9 && qP > qJ + 1e-9) sur(k, c + p * lkm * qP + ARRET, 'plein', qP, A - L);
+      if(qP > 1e-9 && qP > qJ + 1e-9) sur(k, c + p * lkm * qP + ARRET + risque, 'plein', qP, A - L);
     }
   };
   for(let j = -1; j < n; j++){
@@ -156,8 +158,10 @@ function optimiserPlan(candTous, A, total, lkm, opts = {}){
 function pleinsExtremites(cand, total, rayon = 15){
   const meilleure = liste => liste.length ? liste.reduce((x, y) =>
     (y.p < x.p - 1e-9 || (Math.abs(y.p - x.p) <= 1e-9 && y.e < x.e)) ? y : x) : null;
-  return {depart:  meilleure(cand.filter(c => c.km <= rayon)),
-          arrivee: meilleure(cand.filter(c => c.km >= total - rayon))};
+  // Une station a prix fige (risque) n'est retenue que s'il n'y a qu'elle.
+  const sures = l => l.some(c => !c.risque) ? l.filter(c => !c.risque) : l;
+  return {depart:  meilleure(sures(cand.filter(c => c.km <= rayon))),
+          arrivee: meilleure(sures(cand.filter(c => c.km >= total - rayon)))};
 }
 
 // Autonomie utile du plan. Aucune source ouverte ne donne la capacite du reservoir
