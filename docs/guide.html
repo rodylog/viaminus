@@ -128,7 +128,14 @@
     La carte affiche les stations et leurs prix, relevés sur le flux officiel du ministère de l'Économie (mis à jour toutes les
     10 minutes environ). Les stations en rupture du carburant choisi sont écartées du classement et du plan, mais restent visibles en gris avec la date de début de la rupture (une autre application peut encore afficher leur ancien prix). La date de relevé est dans chaque bulle.
     <div class="legende"><span class="v">la moins chère affichée</span><span class="b">dans la norme</span><span class="n">repères du plan</span><span class="r">les 10 % les plus chères</span></div>
-    Toucher une station ouvre sa fiche ; <kbd>Y aller</kbd> lance votre application de navigation (choisie au premier usage).</div></li>
+    Toucher une station ouvre sa fiche ; <kbd>Y aller</kbd> lance votre application de navigation (choisie au premier usage).
+    <b>Pompe vide ?</b> Le flux officiel ne le sait pas ; vous, sur place, si. Sous chaque carburant de la fiche,
+    <kbd>Pompe vide</kbd> ou <kbd>De nouveau dispo</kbd> partage votre constat avec les autres utilisateurs pendant 48 h :
+    la liste et la fiche affichent alors « E85 signalé vide il y a 2 h (3) » en rouge ou « de nouveau dispo il y a 40 min »
+    en vert, et le plan de pleins évite les pompes signalées vides depuis moins de 12 h (option « Éviter les pompes signalées
+    vides », activée d'office ; s'il n'y a plus de plan possible sans elles, il les garde et le dit). Ce qui est envoyé :
+    l'identifiant de la station, le carburant et l'état — <em>jamais</em> votre position, votre véhicule ni un identifiant de
+    votre appareil. Un signalement par station et carburant toutes les 6 h.</div></li>
   <li><div class="carte"><b class="titre">Un trajet : où faire le plein</b>
     Le départ est « Ma position » d'office ; touchez-le et tapez pour partir d'ailleurs. Saisissez l'arrivée : vos
     derniers lieux s'affichent sous les champs (un toucher relance le trajet, la croix efface un lieu). La flèche ⇄
@@ -212,7 +219,13 @@
   <details><summary>Pourquoi aucun compte ?</summary>
     <p>Il n'y a pas de serveur : la page tourne entièrement dans votre navigateur et n'appelle que trois services publics (prix,
       cartes et itinéraires IGN, adresses). Rien de ce que vous saisissez ne quitte votre appareil, sauf ce que vous choisissez
-      de partager par un lien.</p></details>
+      de partager par un lien — ou un signalement « pompe vide », anonyme (station, carburant, état, rien d'autre).</p></details>
+  <details><summary>J'arrive à la pompe, elle est vide : que faire ?</summary>
+    <p>Dans la fiche de la station, sous le carburant, <kbd>Pompe vide</kbd> : la station est grisée pour vous et le constat
+      est partagé anonymement avec les autres utilisateurs pendant 48 h (si la personne qui publie la page a branché le
+      service de signalements ; sinon le bouton n'existe pas et rien n'est envoyé). Sur le plan, <kbd>Pompe vide ?</kbd> refait
+      le plan sans elle et indique la station la plus proche atteignable avec ce qui reste. Quand elle est réapprovisionnée,
+      <kbd>De nouveau dispo</kbd>.</p></details>
   <details><summary>Le plan dit « infaisable », que faire ?</summary>
     <p>L'autonomie entre deux stations à portée ne suffit pas. L'application propose les remèdes : accepter un détour
       (des stations plus loin de la route), réduire la réserve, vérifier l'autonomie du véhicule, ou accepter plus de carburants.</p></details>
@@ -226,7 +239,9 @@
 <div class="carte"><ul class="liste">
   <li><b>Vos données restent chez vous</b>
     Véhicules et trajets mémorisés sont rangés dans votre navigateur, jamais sur un serveur. Un autre navigateur ou un autre
-    appareil part donc à vide (voir « Un véhicule » ci-dessus pour transférer une fiche).</li>
+    appareil part donc à vide (voir « Un véhicule » ci-dessus pour transférer une fiche). Seule exception, et seulement si
+    vous appuyez sur <kbd>Pompe vide</kbd> ou <kbd>De nouveau dispo</kbd> : l'identifiant de la station, le carburant et l'état
+    partent vers le service de signalements — rien d'autre, ni position, ni véhicule, ni identifiant d'appareil, ni cookie.</li>
   <li><b>Votre position</b>
     Par la géolocalisation de l'appareil (le navigateur vous demande l'autorisation), ou en posant le repère vous-même :
     appui long ou clic droit sur la carte, ou menu <kbd>Position</kbd> pour saisir une adresse.</li>
