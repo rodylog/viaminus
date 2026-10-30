@@ -219,3 +219,39 @@ test('pleinsExtremites : une station a prix fige n\'est retenue que s\'il n\'y a
   assert.strictEqual(pleinsExtremites([X, Y], 200).depart.s, 'Y');
   assert.strictEqual(pleinsExtremites([X], 200).depart.s, 'X');
 });
+
+// ---- Espagne (28/10/2026) : stations espagnoles de meme forme que les francaises ----
+// plan.js ne sait rien du pays : des candidats {s, km, e, p} de meme forme, le moins cher
+// atteignable gagne, qu'il soit en France ou en Espagne. Les objets `s` sont ici des stations
+// completes (forme de app.js, normalise() / normaliserStationES) pour verifier que rien ne depend
+// de leurs champs.
+test('plan transfrontalier : 2 francaises + 2 espagnoles, la moins chere gagne quel que soit le pays', () => {
+  const {normaliserStationES} = require('./es.js');
+  const ECH = require('./fixtures/es-echantillon-girona.json');
+  const fr = (id, ville) => ({id, la: 42.7, lo: 2.9, ville, cp: '66000', adresse: 'ROUTE', auto: true, rupture: '', hs: new Set(), d: 0,
+    prix: {e85: null, e10: null, sp98: null, sp95: null, gazole: 1.75, gplc: null},
+    maj: {e85: null, e10: null, sp98: null, sp95: null, gazole: '2026-10-28T09:00:00+00:00', gplc: null},
+    depuis: {}, kotype: {}, off: {prix: {}, maj: {}}, corr: {}});
+  const es1 = normaliserStationES(ECH.ListaEESSPrecio[0], ECH.Fecha);   // gazole 1,999
+  const es2 = normaliserStationES(ECH.ListaEESSPrecio[2], ECH.Fecha);   // gazole 1,949
+  assert.strictEqual(es1.pays, 'ES'); assert.strictEqual(es2.prix.gazole, 1.949);
+  // Perpignan -> Barcelone, A 300 km, 500 km, 6 L/100 : il faut un arret entre km 200 et 300.
+  // FR2 (km 220, 1.80) contre ES2 (km 250, 1.649 : moins cher) -> l'arret est en Espagne.
+  const cand = [
+    {s: fr('F1', 'Perpignan'), km: 10,  e: 0, p: 1.75},
+    {s: fr('F2', 'Le Boulou'), km: 220, e: 0, p: 1.80},
+    {s: es1,                    km: 240, e: 0, p: es1.prix.gazole},   // 1.999
+    {s: es2,                    km: 250, e: 0, p: 1.649},             // prix de test : la moins chere
+  ].sort((a, b) => a.km - b.km);
+  const r = optimiserPlan(cand, 300, 500, 0.06);
+  assert.deepStrictEqual(r.plan.map(e => [e.s.id, e.s.pays || 'FR', e.plein]), [['ES-2069', 'ES', false]]);
+  assert.ok(presque(r.plan[0].q, 200));
+  // Meme trajet, la francaise moins chere : l'arret repasse en France.
+  const cand2 = cand.map(c => c.s.id === 'F2' ? Object.assign({}, c, {p: 1.60}) : c);
+  const r2 = optimiserPlan(cand2, 300, 500, 0.06);
+  assert.deepStrictEqual(r2.plan.map(e => e.s.id), ['F2']);
+  // Plein au depart et a l'arrivee : la moins chere de chaque bout, pays indifferent.
+  const ext = pleinsExtremites(cand, 500, 15);
+  assert.strictEqual(ext.depart.s.id, 'F1');
+  assert.strictEqual(ext.arrivee, null);
+});
