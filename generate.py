@@ -58,6 +58,11 @@ MAPLIBRE = {
 # Scripts du gabarit, dans l'ordre d'assemblage (un seul <script> a la fin de la page).
 SCRIPTS = ["plan.js", "conso.js", "irve.js", "bornes.js", "partage.js", "es.js",
            "ui/icones.js", "ui/feuilles.js", "ui/fond.js", "ui/assistant.js", "app.js"]
+# Service worker (appli installable, hors-ligne, 30/10/2026) : pwa/sw.js = regles pures (testees
+# en Node) + corps du worker, assembles ici en UN fichier et commites avec le manifeste et les
+# icones (pwa/) ; le script de publication les copie a cote de la page. Rien n'est inline dans
+# la page : le worker est un fichier a part, enregistre par app.js en https seulement.
+SW_SCRIPTS = ["pwa-strategie.js", "sw.js"]
 # Espagne (28/10/2026) : prix du ministere espagnol, charges par province depuis la page
 # (src/es.js) ; la table des provinces est inlinee a la place du jeton __ES_PROVINCIAS__.
 # Le snapshot de repli embarque reste francais : seul hote nouveau, dans connect-src.
@@ -108,6 +113,8 @@ def csp_meta(html):
     """CSP calculee sur le HTML final : script-src par empreinte de CHAQUE script
     inline (pas de 'unsafe-inline'), connect-src borne aux API publiques et a la
     page elle-meme ('self' : controle de version).
+    Appli installable (30/10/2026) : worker-src 'self' pour le service worker (sw.js a cote
+    de la page) et manifest-src 'self' pour manifest.webmanifest — les deux seuls ajouts.
     MapLibre : son worker est cree depuis un blob: (worker-src ; child-src = repli
     des navigateurs sans worker-src) ; tuiles vectorielles, glyphes et sprites IGN
     sont charges en fetch (connect-src data.geopf.fr), tout comme les tuiles raster
@@ -126,7 +133,7 @@ def csp_meta(html):
     assert len(hashes) >= 2, "bibliotheque + application attendues"
     return ('<meta http-equiv="Content-Security-Policy" content="'
             "default-src 'none'; script-src " + " ".join(hashes) + "; "
-            "worker-src blob:; child-src blob:; "
+            "worker-src 'self' blob:; child-src blob:; manifest-src 'self'; "
             "style-src 'unsafe-inline'; "
             "img-src 'self' data: blob: https://data.geopf.fr https://tile.openstreetmap.org; "
             "connect-src 'self' https://data.economie.gouv.fr https://data.geopf.fr "
@@ -141,6 +148,19 @@ SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
 def lire(nom):
     with open(os.path.join(SRC, nom), encoding="utf-8") as f:
         return f.read()
+
+
+def assembler_sw():
+    """pwa/sw.js : les regles (src/pwa-strategie.js, pures, globales dans le worker) puis le
+    corps (src/sw.js), dans un seul fichier, comme la page. Ecrit seulement s'il change."""
+    texte = "\n\n".join(lire(n).rstrip("\n") for n in SW_SCRIPTS) + "\n"
+    chemin = os.path.join(os.path.dirname(SRC), "pwa", "sw.js")
+    actuel = open(chemin, encoding="utf-8").read() if os.path.exists(chemin) else None
+    if actuel != texte:
+        os.makedirs(os.path.dirname(chemin), exist_ok=True)
+        with open(chemin, "w", encoding="utf-8") as f:
+            f.write(texte)
+    return chemin, len(texte.encode("utf-8"))
 
 
 def assembler():
@@ -206,6 +226,8 @@ def main():
         f.write(html)
     print(f"{out} — {len(rows)} stations dans le snapshot de repli — "
           f"{os.path.getsize(out) / 1024:.0f} Ko")
+    sw, octets = assembler_sw()
+    print(f"{sw} — service worker — {octets / 1024:.0f} Ko (a publier a cote de la page avec pwa/)")
 
     if a.open:
         webbrowser.open("file://" + out)

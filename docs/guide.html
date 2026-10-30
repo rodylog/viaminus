@@ -116,9 +116,11 @@
 
 <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg> L'utiliser</h2>
 <ol class="etapes">
-  <li><div class="carte"><b class="titre">Ouvrir le lien</b>
-    Sur le téléphone ou l'ordinateur, dans le navigateur. Sur mobile, <kbd>Ajouter à l'écran d'accueil</kbd> (menu du navigateur)
-    en fait une icône qui s'ouvre comme une appli.</div></li>
+  <li><div class="carte"><b class="titre">Ouvrir le lien, puis l'installer</b>
+    Sur le téléphone ou l'ordinateur, dans le navigateur. Sur Android (Chrome, Edge, Samsung Internet), le navigateur propose
+    <kbd>Installer l'application</kbd> (ou menu → <kbd>Ajouter à l'écran d'accueil</kbd>) ; sur iPhone, Safari → <kbd>Partager</kbd> →
+    <kbd>Sur l'écran d'accueil</kbd>. L'icône goutte + éclair s'ouvre ensuite comme une appli, sans barre d'adresse, et
+    <b>fonctionne sans réseau</b> avec les derniers prix et bornes vus (voir « Sans réseau ? » plus bas).</div></li>
   <li><div class="carte"><b class="titre">Premier lancement : votre véhicule</b>
     Un assistant en trois écrans : le véhicule (type, catégorie, carburants, autonomie d'un plein en km <em>dont</em> la réserve
     que le plan n'entame jamais, consommation connue ou <kbd>Estimer</kbd>), votre position, et c'est prêt. <kbd>Passer</kbd> à tout
@@ -216,6 +218,12 @@
   <details><summary>Le plan dit « infaisable », que faire ?</summary>
     <p>L'autonomie entre deux stations à portée ne suffit pas. L'application propose les remèdes : accepter un détour
       (des stations plus loin de la route), réduire la réserve, vérifier l'autonomie du véhicule, ou accepter plus de carburants.</p></details>
+  <details><summary>Sans réseau, ça marche ?</summary>
+    <p>Oui, une fois la page installée ou ouverte au moins une fois en ligne. Hors ligne, un bandeau « Hors ligne — prix du … »
+      donne la date des derniers prix vus ; la liste et le plan de pleins fonctionnent sur ces prix (gardés sept jours), les
+      bornes déjà affichées restent disponibles. Le fond de carte, l'itinéraire et la recherche d'adresse, eux, demandent le réseau
+      et le disent. Dès que le réseau revient, les prix se rechargent. Quand une nouvelle version est publiée, un bandeau
+      « Nouvelle version » propose de recharger : rien ne se recharge tout seul.</p></details>
   <details><summary>Et pour une voiture électrique ?</summary>
     <p>Oui, depuis le 30 octobre 2026 : voir la section « Véhicule électrique » ci-dessous. Les bornes viennent de la Base nationale
       des IRVE (données publiques, statiques) ; le plan dit où s'arrêter et combien de temps, pas combien ça coûte, parce qu'aucune
@@ -232,10 +240,11 @@
     appui long ou clic droit sur la carte, ou menu <kbd>Position</kbd> pour saisir une adresse.</li>
   <li><b>Une copie en fichier</b>
     L'application tient dans un seul fichier HTML, qu'on peut aussi envoyer. Ouvert depuis un fichier, Firefox refuse la
-    géolocalisation et sépare la mémoire par fichier : préférez le lien en ligne.</li>
+    géolocalisation et sépare la mémoire par fichier, et aucun navigateur n'y permet l'installation ni le mode sans réseau :
+    préférez le lien en ligne.</li>
   <li><b>Limites</b>
-    France uniquement. 400 stations et bornes au plus par zone affichée (l'écran le signale quand ça tronque). Bornes
-    indisponibles hors ligne et depuis un fichier local.</li>
+    France et Espagne. 400 stations et bornes au plus par zone affichée (l'écran le signale quand ça tronque). Bornes
+    indisponibles depuis un fichier local ; hors ligne, seules celles déjà affichées restent.</li>
 </ul></div>
 
 <footer>

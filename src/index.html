@@ -6,6 +6,11 @@
 __CSP__
 <meta name="fuelpilot-build" content="__BUILD__">
 <meta name="color-scheme" content="light dark">
+<!-- Appli installable (30/10/2026) : manifeste et couleur de barre a cote de la page (pwa/) ;
+     en file:// le navigateur les ignore sans erreur, et app.js n'enregistre pas de service worker. -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b57d0">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f1115">
 <title>ViaMinus</title>
 <style>__MAPLIBRE_CSS__</style>
 <script>__MAPLIBRE_JS__</script>
@@ -20,6 +25,8 @@ __APP_CSS__
     <p><span data-ico="alerte"></span> <b>Carte indisponible</b> : ce navigateur n'a pas WebGL (ou l'accélération
     graphique est désactivée). La liste des stations, le garage et le plan de pleins fonctionnent sans la carte.</p>
   </div>
+  <!-- Hors ligne (30/10/2026) : le fond de carte demande le reseau ; la liste et le plan, eux, marchent sur les derniers prix vus. -->
+  <p id="carteHorsLigne" class="carte-hors-ligne flottant" role="status" hidden><span data-ico="alerte"></span> Hors ligne : le fond de carte peut manquer. La liste et le plan fonctionnent avec les derniers prix vus.</p>
 
   <div id="haut" class="haut">
     <div class="recherche" id="recherche">
@@ -569,6 +576,9 @@ __APP_CSS__
     </ul>
   </section>
 </div>
+
+<!-- Bandeaux empiles au-dessus de la feuille : « Hors ligne — prix du … », « Nouvelle version » -->
+<div id="bandeaux" class="bandeaux"></div>
 
 <script>
 __APP_JS__
