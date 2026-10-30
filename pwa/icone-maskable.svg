@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Variante « maskable » : fond plein bord a bord (le systeme decoupe sa forme), motif reduit
+       dans la zone sure (cercle central de 80 %). -->
+  <rect width="512" height="512" fill="#0b57d0"/>
+  <g transform="translate(256 256) scale(0.72) translate(-256 -256)">
+    <path d="M256 72 C256 72 112 236 112 326 a144 144 0 0 0 288 0 C400 236 256 72 256 72 Z" fill="#fff"/>
+    <polygon points="276,214 206,334 252,334 236,422 306,302 262,302" fill="#0b57d0"/>
+  </g>
+</svg>
