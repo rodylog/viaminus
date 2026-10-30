@@ -1,6 +1,7 @@
 # ⛽ ViaMinus
 
-Carte des prix des carburants en France **avec planification optimale des pleins**,
+Carte des prix des carburants en France — et en Espagne dès que la carte ou le trajet
+la touche — **avec planification optimale des pleins**,
 dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tracker.
 
 ## Ce que ça fait
@@ -8,6 +9,24 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
 - **Prix en direct** : flux instantané officiel du ministère de l'Économie
   (déclaration obligatoire des stations, mise à jour ~10 min), rechargé à chaque
   ouverture et à chaque déplacement de la carte.
+- **Espagne sur la carte** (28/10/2026) : dès que l'emprise ou le couloir du trajet croise
+  une province espagnole, les stations espagnoles s'ajoutent aux françaises — même tableau,
+  même liste (tri par prix, badge `ES`, enseigne, horaires résumés), même carte, même fiche
+  (« Y aller », ouvert / fermé à cette heure), plafond de 400 commun (annoncé quand ça
+  tronque) et **même plan de pleins** (`src/plan.js` inchangé : un Perpignan → Barcelone fait
+  le plein du bon côté de la frontière). Source : API du ministère espagnol, interrogée
+  **par province** (`FiltroProvincia/{id}`, quelques centaines de ko ; le fichier national
+  pèse 12 Mo) à partir de la table `src/es-provincias.json` (52 provinces, boîtes
+  englobantes calculées le 28/10/2026) : trois provinces à la fois au plus (au-delà,
+  « zoomez »), cache mémoire de 30 min par province, réponses obsolètes abandonnées comme
+  pour le flux français ; en cas d'échec, « prix espagnols indisponibles » dans l'état et le
+  reste continue. Correspondance des carburants : gazole ← Gasóleo A, SP95 ← Gasolina 95 E5,
+  SP98 ← Gasolina 98 E5, E10 ← Gasolina 95 E10, E85 ← Gasolina 95 E85, GPLc ← GLP ; les
+  nombres du flux sont des textes à virgule (`"1,999"`), vide = non vendu (null, jamais 0) ;
+  seules les stations en vente au public (`Tipo Venta` P) sont gardées. La date des prix
+  espagnols est l'horodatage **global** du fichier (`Fecha`), pas un relevé par station.
+  `src/es.js` (pur, testé) normalise chaque station espagnole à **la forme exacte** d'une
+  station française, plus `pays`, `enseigne` et `horario`.
 - **Garage multi-véhicules** : chaque véhicule a sa fiche (carburants, conso,
   autonomie d'un plein en km — ou réservoir —, dont réserve en km), mémorisée dans le
   navigateur. Aucune source ouverte ne donne la capacité du réservoir (vérifié le
@@ -134,7 +153,8 @@ l'application à `/guide.html`.
 
 Le fichier généré est autonome (MapLibre GL JS embarqué, empreintes SHA-384
 vérifiées, worker créé en `blob:`) ; seul le chargement des prix, du style et des
-tuiles IGN et du géocodage passe par le réseau. `--sans-snapshot` génère sans
+tuiles IGN et du géocodage passe par le réseau. Le snapshot de repli embarqué reste
+**France seulement** (aucun prix espagnol embarqué). `--sans-snapshot` génère sans
 interroger le flux (repli hors ligne vide) ; sans accès à unpkg, déposer
 `maplibre-gl.js` et `maplibre-gl.css` (dist/ du paquet npm, version de
 `generate.py`) dans `~/.cache/fuelpilot/`.
@@ -149,18 +169,21 @@ Le gabarit vit dans `src/` et `generate.py` l'assemble en un seul fichier :
 | `src/app.css` | styles ; jetons dans `:root` (couleurs métier, surfaces, rayons), mode sombre, mise en page mobile / bureau |
 | `src/plan.js` | algorithme du plan de pleins (DP sur l'état du réservoir, coût du voyage, prix moyen, économie vs le plus cher), pur, exporté pour Node |
 | `src/conso.js` | table de consommation embarquée (`estimerConso`), pure, exportée pour Node |
+| `src/es.js` | Espagne : `nombreES`, `normaliserStationES` (forme d'une station française), `ouvertA` / `resumerHorario` (horaires `L-S: 06:00-22:00; D: …`), `provincesPourEmprise` / `enEspagne` ; pur, exporté pour Node |
+| `src/es-provincias.json` | les 52 provinces : id → [nom, nb de stations, latMin, latMax, lonMin, lonMax], calculées le 28/10/2026 depuis le fichier complet ; inliné à la génération |
+| `src/fixtures/es-echantillon-girona.json` | réponse réelle `FiltroProvincia/17` tronquée à 3 stations (tests) |
 | `src/ui/icones.js` | icônes SVG inline (jeu Lucide, MIT) : `ico('nom')` |
 | `src/ui/feuilles.js` | feuille glissante à trois crans (mobile), feuilles modales, Échap, focus |
 | `src/ui/fond.js` | carte MapLibre : créée sans style, style IGN vectoriel posé une seule fois, transformation sombre, orthophoto, repli raster IGN puis OSM, WebGL absent |
 | `src/ui/assistant.js` | assistant véhicule en trois écrans (`creerAssistant(ctx)`) |
 | `src/app.js` | données, rendu (marqueurs, liste, carte-héros du plan), garage, itinéraire (aller-retour), partage, import par l'URL, position, menus |
-| `src/plan.test.js`, `src/conso.test.js` | tests des modules purs |
+| `src/plan.test.js`, `src/conso.test.js`, `src/es.test.js` | tests des modules purs |
 
 Les scripts sont assemblés dans l'ordre de `SCRIPTS` (`generate.py`) en un seul
-`<script>` : `plan.js`, `conso.js`, `ui/*.js`, puis `app.js`.
+`<script>` : `plan.js`, `conso.js`, `es.js`, `ui/*.js`, puis `app.js`.
 
 ```bash
-node --test src/plan.test.js src/conso.test.js   # tests des modules purs (Node ≥ 20)
+node --test src/*.test.js   # tests des modules purs (Node ≥ 20)
 ```
 
 La CSP est recalculée à chaque génération à partir des scripts réellement inline
@@ -171,6 +194,10 @@ sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
 ## Sources et licences
 
 - Prix : [data.economie.gouv.fr](https://data.economie.gouv.fr/explore/dataset/prix-des-carburants-en-france-flux-instantane-v2/) (Licence Ouverte).
+- Prix des carburants en Espagne : Ministerio para la Transición Ecológica y el Reto Demográfico,
+  [Geoportal Gasolineras](https://geoportalgasolineras.es), données ouvertes
+  (API `sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/FiltroProvincia/{id}`,
+  CORS `*`).
 - Fonds de carte : Plan IGN / orthophotos (Géoplateforme) ; OpenStreetMap en secours
   seulement si l'IGN ne répond pas (CARTO retiré le 17/09/2026 : clé désormais exigée).
 - Itinéraires : Géoplateforme IGN. Géocodage : Base Adresse Nationale.
@@ -178,8 +205,17 @@ sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
 
 ## Limites connues
 
-- France uniquement (multi-pays étudié : Espagne intégrable — API ouverte CORS `*` ;
-  Italie sans CORS ; Allemagne à clé personnelle).
+- France et Espagne (Italie sans CORS ; Allemagne à clé personnelle).
+- Espagne : l'E85 y est quasi absent (2 stations sur 11 422 le 28/10/2026, E10 : 28, GPL : 995) —
+  l'application le montre tel quel, elle ne le cache pas ; la date de mise à jour espagnole est
+  l'horodatage global du fichier du ministère, pas un relevé par station ; pas de notion de
+  rupture dans le flux espagnol ; trois provinces chargées à la fois au plus (au-delà, zoomer) ;
+  l'Espagne n'est pas chargée sur une emprise de plus de 3° de latitude (France entière).
+  Dans `src/es-provincias.json`, cinq boîtes englobantes sont dégénérées (08 Barcelona, 28 Madrid,
+  30 Murcia, 39 Cantabria : une station à 0,0 dans le fichier source ; 36 Pontevedra : latitude et
+  longitude inversées) : `es.js` les classe après les autres, mais elles provoquent des requêtes
+  inutiles près de la frontière — à recalculer en écartant les stations hors de l'enveloppe de
+  l'Espagne. Le snapshot de repli embarqué reste français.
 - `file://` : Firefox y refuse la géolocalisation et cloisonne le stockage par
   fichier — héberger en https règle les deux.
 - 400 stations chargées par zone au maximum (annoncé à l'écran quand ça tronque).
