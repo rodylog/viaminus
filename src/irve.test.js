@@ -1,6 +1,9 @@
 // Tests de src/irve.js : lecture des champs du fichier Etalab (pieges mesures sur le fichier
 // du 28/10/2026), horaires, compatibilite, filtres, couloir. La fixture src/fixtures/irve-34.json
-// est produite par irve_build.py depuis les 12 points de charge de src/fixtures/irve-echantillon-34.csv.
+// est produite par irve_build.py depuis src/fixtures/irve-echantillon-34.csv : 12 points de charge
+// reels du fichier du 28/10/2026 + 1 ligne SYNTHETIQUE (derivee du parking P2 de Mauguio, codes
+// postal et INSEE vides, code postal seulement dans l'adresse) qui exerce la resolution du
+// departement par l'adresse (voie 3 d'irve_build.py, testee cote Python dans irve_build_test.py).
 // Ne pas modifier irve.js pour faire passer ces tests.
 'use strict';
 const test = require('node:test');
@@ -15,11 +18,14 @@ const presque = (a, b, tol = 1e-6) => Math.abs(a - b) < tol;
 // Dates locales : jeudi 5 novembre 2026, dimanche 8 novembre 2026.
 const JEUDI_10H = new Date(2026, 10, 5, 10, 0), DIMANCHE_10H = new Date(2026, 10, 8, 10, 0);
 
-// ---- Fixture : 12 PDC de l'Herault -> 10 stations ----
+// ---- Fixture : 13 PDC de l'Herault -> 11 stations ----
 
-test('fixture : 12 PDC, 1 rejete hors France (latitude 3.84), 2 PDC de Nabrigas regroupes -> 10 stations, 11 PDC', () => {
-  assert.strictEqual(FIXTURE.length, 10);
-  assert.strictEqual(FIXTURE.reduce((t, s) => t + s.pdc, 0), 11);
+test('fixture : 13 PDC, 1 rejete hors France (latitude 3.84), 2 PDC de Nabrigas regroupes -> 11 stations, 12 PDC', () => {
+  assert.strictEqual(FIXTURE.length, 11);
+  assert.strictEqual(FIXTURE.reduce((t, s) => t + s.pdc, 0), 12);
+  // Ligne synthetique sans code postal ni INSEE : departement trouve dans l'adresse, donc dans 34.json.
+  const p1 = FIXTURE.find(s => s.id === 'FRBE3P34154002');
+  assert.ok(p1 && p1.n === 'AMM - Mauguio - Parking P1' && p1.ac === true);
   assert.ok(!FIXTURE.some(s => s.id === 'FRALLPEVCARSSTCDR'));   // Saint-Clement : coordonnees fausses
   const nab = FIXTURE.find(s => s.id === 'FRSITE00000256');
   assert.strictEqual(nab.pdc, 2);
@@ -151,9 +157,9 @@ test('filtrerBornes sur la fixture : CCS >= 100 kW -> Buffalo, Villeneuve, Lespi
   assert.deepStrictEqual(r, ['FRSITE00000221', 'FRSITE00000236', 'FRSITE00000307']);
   assert.deepStrictEqual(filtrerBornes(FIXTURE, {gratuit: true}).map(s => s.id), ['FR000011062174']);
   assert.strictEqual(filtrerBornes(FIXTURE, {cb: true}).length, 5);
-  assert.strictEqual(filtrerBornes(FIXTURE, {}).length, 10);
+  assert.strictEqual(filtrerBornes(FIXTURE, {}).length, 11);
   // Ouvert un dimanche a 10 h : l'hotel (Mo-Fr) est exclu, les 24/7 et Mauguio restent.
-  assert.strictEqual(filtrerBornes(FIXTURE, {ouvertLe: DIMANCHE_10H}).length, 9);
+  assert.strictEqual(filtrerBornes(FIXTURE, {ouvertLe: DIMANCHE_10H}).length, 10);
   // Horaires inconnus : gardes (on ne sait pas que c'est ferme).
   assert.strictEqual(filtrerBornes([{h: null}, {h: 'texte libre'}], {ouvertLe: DIMANCHE_10H}).length, 2);
 });

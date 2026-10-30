@@ -24,6 +24,7 @@ Bibliotheque standard seule.
 import argparse
 import csv
 import json
+import math
 import os
 import re
 import sys
@@ -133,15 +134,79 @@ def date_maj(txt):
     return t[:10] if RE_DATE.match(t) else None
 
 
-def departement(r):
+RE_CP = re.compile(r"(?<!\d)(\d{5})(?!\d)")
+DEPS_VALIDES = {"%02d" % i for i in range(1, 96)} - {"20"} | {"2A", "2B"}
+RAYON_BBOX_KM = 150   # une station a plus de 150 km de la mediane de son departement est aberrante
+VOIES = ("cp_consolide", "insee", "adresse", "emprise")
+
+
+def corse(insee, lat):
+    """20 -> 2A / 2B : d'apres l'INSEE si on l'a, sinon par la latitude (limite ~ 42,0)."""
+    if insee.startswith("2A") or insee.startswith("2B"):
+        return insee[:2]
+    return "2A" if lat is not None and lat < 42.0 else "2B"
+
+
+def departement(r, lat=None):
+    """(departement, voie) ; (None, None) si aucune des trois premieres voies n'aboutit
+    (la quatrieme, l'emprise des departements deja attribues, se joue sur les stations :
+    voir attribuer_par_emprise). Mesure sur le fichier du 30/10/2026 : 69 182 lignes sans
+    consolidated_code_postal ni code_insee_commune exploitable, dont 98 % portent un code
+    postal a 5 chiffres dans adresse_station.
+    1. consolidated_code_postal[:2] ; 2. code_insee_commune[:2] (2A/2B compris) ;
+    3. dernier groupe de 5 chiffres d'adresse_station."""
     cp = (r.get("consolidated_code_postal") or "").strip()
     insee = (r.get("code_insee_commune") or "").strip().upper()
-    dep = cp[:2] if len(cp) >= 2 and cp[:2].isdigit() else ""
-    if dep == "20":   # Corse : 2A / 2B d'apres l'INSEE
-        dep = "2B" if insee.startswith("2B") else "2A"
-    if not dep and len(insee) >= 2:
-        dep = insee[:2]
-    return dep or "00"   # 00 : departement indeterminable (compte dans le rapport)
+    candidats = [(cp[:2] if len(cp) >= 2 and cp[:2].isdigit() else "", "cp_consolide"),
+                 (insee[:2] if len(insee) >= 2 else "", "insee")]
+    cps = RE_CP.findall(r.get("adresse_station") or "")
+    candidats.append((cps[-1][:2] if cps else "", "adresse"))
+    for dep, voie in candidats:
+        if dep == "20":
+            dep = corse(insee, lat)
+        if dep in DEPS_VALIDES:
+            return dep, voie
+    return None, None
+
+
+def bbox_robuste(liste):
+    """Emprise d'un departement sans ses coordonnees aberrantes (Herault : 8 PDC sur 1 357 hors
+    du departement, bbox de -1,53 a 47,21 au 30/10/2026) : les stations a plus de RAYON_BBOX_KM
+    de la mediane (lon, lat) sont exclues du calcul. Renvoie (bbox, nombre d'exclues)."""
+    lons = sorted(s["lon"] for s in liste)
+    lats = sorted(s["lat"] for s in liste)
+    mlon, mlat = lons[len(lons) // 2], lats[len(lats) // 2]
+    kx = 111.32 * math.cos(math.radians(mlat))
+    gardees = [s for s in liste
+               if math.hypot((s["lon"] - mlon) * kx, (s["lat"] - mlat) * 110.57) <= RAYON_BBOX_KM]
+    return ([min(s["lon"] for s in gardees), min(s["lat"] for s in gardees),
+             max(s["lon"] for s in gardees), max(s["lat"] for s in gardees)],
+            len(liste) - len(gardees))
+
+
+def attribuer_par_emprise(stations, rapport):
+    """Voie 4 : station sans departement -> le departement (deja attribue par les voies
+    1 a 3) dont l'emprise robuste contient le point ; la plus petite en cas de chevauchement.
+    Le reste va dans 00.json (inattribuable)."""
+    par_dep = {}
+    for s in stations:
+        if s["_dep"]:
+            par_dep.setdefault(s["_dep"], []).append(s)
+    emprises = []
+    for dep, liste in par_dep.items():
+        b, _ = bbox_robuste(liste)
+        emprises.append((dep, b, (b[2] - b[0]) * (b[3] - b[1])))
+    emprises.sort(key=lambda x: x[2])   # la plus petite d'abord
+    for s in stations:
+        if s["_dep"]:
+            continue
+        for dep, b, _ in emprises:
+            if b[0] <= s["lon"] <= b[2] and b[1] <= s["lat"] <= b[3]:
+                s["_dep"], s["_voie"] = dep, "emprise"
+                break
+        else:
+            s["_dep"], s["_voie"] = "00", "inattribuable"
+        rapport["voies"][s["_voie"]] += 1
 
 
 def agreger_bool(valeurs):
@@ -224,8 +289,16 @@ def construire_stations(pdcs, rapport):
             "pmr": agreger_bool([pmr(r.get("accessibilite_pmr")) for r in rows]),
             "acces": premier(acces(r.get("condition_acces")) for r in rows),
             "maj": premier(date_maj(r.get("date_maj")) for r in rows),
-            "_dep": departement(rows[0]),
         })
+        # Departement : premier PDC (le plus recent) qui aboutit par les voies 1 a 3.
+        dep, voie = None, None
+        for r in rows:
+            dep, voie = departement(r, lat)
+            if dep:
+                break
+        stations[-1]["_dep"], stations[-1]["_voie"] = dep, voie
+        if voie:
+            rapport["voies"][voie] += 1
     stations.sort(key=lambda s: s["id"])
     return stations
 
@@ -236,23 +309,25 @@ def ecrire(stations, sortie, source):
     for s in stations:
         par_dep.setdefault(s.pop("_dep"), []).append(s)
     index = {"genere": date.today().isoformat(), "source": source, "departements": {}}
-    total = 0
+    total, exclues = 0, 0
     for dep in sorted(par_dep):
         liste = par_dep[dep]
+        for s in liste:
+            s.pop("_voie", None)
         chemin = os.path.join(sortie, dep + ".json")
         with open(chemin, "w", encoding="utf-8") as f:
             json.dump(liste, f, ensure_ascii=False, separators=(",", ":"))
             f.write("\n")
         octets = os.path.getsize(chemin)
         total += octets
+        bbox, n_excl = bbox_robuste(liste)
+        exclues += n_excl
         index["departements"][dep] = {
-            "stations": len(liste), "pdc": sum(s["pdc"] for s in liste), "octets": octets,
-            "bbox": [min(s["lon"] for s in liste), min(s["lat"] for s in liste),
-                     max(s["lon"] for s in liste), max(s["lat"] for s in liste)]}
+            "stations": len(liste), "pdc": sum(s["pdc"] for s in liste), "octets": octets, "bbox": bbox}
     with open(os.path.join(sortie, "index.json"), "w", encoding="utf-8") as f:
         json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
         f.write("\n")
-    return total, len(par_dep)
+    return total, len(par_dep), exclues
 
 
 def main():
@@ -262,18 +337,22 @@ def main():
     ap.add_argument("--source", default=SOURCE, help="URL du CSV, ecrite dans index.json")
     a = ap.parse_args()
 
-    rapport = {"lignes": 0, "doublons": 0, "rejets_hors_france": 0, "puissances_inconnues": 0}
+    rapport = {"lignes": 0, "doublons": 0, "rejets_hors_france": 0, "puissances_inconnues": 0,
+               "voies": {v: 0 for v in VOIES + ("inattribuable",)}}
     pdcs = lire_pdc(a.csv, rapport)
     stations = construire_stations(pdcs, rapport)
-    inconnus = sum(1 for s in stations if s["_dep"] == "00")
-    total, ndep = ecrire(stations, a.sortie, a.source)
+    attribuer_par_emprise(stations, rapport)
+    total, ndep, exclues = ecrire(stations, a.sortie, a.source)
+    v = rapport["voies"]
     print(f"lignes lues            : {rapport['lignes']}")
     print(f"rejets hors France     : {rapport['rejets_hors_france']} (coordonnees illisibles ou hors metropole/Corse)")
     print(f"doublons de PDC retires: {rapport['doublons']} (date_maj la plus recente gardee)")
     print(f"PDC dedoublonnes       : {len(pdcs)}")
-    print(f"stations               : {len(stations)} dans {ndep} departement(s)"
-          + (f", dont {inconnus} sans departement (00.json)" if inconnus else ""))
+    print(f"stations               : {len(stations)} dans {ndep} fichier(s)")
+    print(f"departement par        : code postal consolide {v['cp_consolide']}, INSEE {v['insee']}, "
+          f"adresse {v['adresse']}, emprise {v['emprise']}, inattribuable (00.json) {v['inattribuable']}")
     print(f"puissances inconnues   : {rapport['puissances_inconnues']} PDC")
+    print(f"bbox : stations exclues: {exclues} (a plus de {RAYON_BBOX_KM} km de la mediane de leur departement)")
     print(f"taille totale ecrite   : {total / 1024:.1f} Ko dans {a.sortie}/")
 
 
