@@ -19,7 +19,7 @@ function hauteurCran(c){
   const h = innerHeight;
   if(c === 'plein') return h - 76;
   if(c === 'moitie') return Math.round(h / 2);
-  return 96;
+  return 6 * parseFloat(getComputedStyle(document.documentElement).fontSize);   // 6rem, comme app.css (zoom texte)
 }
 function poserCran(c){
   panneau.dataset.cran = c;

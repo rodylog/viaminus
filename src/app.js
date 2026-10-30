@@ -540,7 +540,7 @@ function renduCarburant(){
         ? `<div class="lbl lbl2">${chips}</div>`
         : `<div class="lbl" style="background:${c0};`+
           `border-color:#555;color:#fff">${marqueHtml(c0)}${v.lignes[0].prix.toFixed(3)}`+
-          (sel[0]==='spmin' ? ` <span style="font-size:10px;opacity:.85">${v.lignes[0].tag}</span>` : '')+
+          (sel[0]==='spmin' ? ` <span style="font-size:.625rem;opacity:.85">${v.lignes[0].tag}</span>` : '')+
           `</div>`;
       const el = document.createElement('button');
       el.type = 'button'; el.className = 'marqueur'; el.tabIndex = -1;

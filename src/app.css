@@ -16,7 +16,7 @@
         --ombre:0 8px 30px rgba(0,0,0,.14);--ombre-2:0 2px 10px rgba(0,0,0,.12);
         --voile:rgba(0,0,0,.35);--sur-carte:#fff;
         --r1:7px;--r2:10px;--r3:20px;--rf:20px;--flou:16px;--duree:.18s;
-        --haut:64px;--pad-haut:env(safe-area-inset-top,0px);--pad-bas:env(safe-area-inset-bottom,0px)}
+        --haut:4rem;--pad-haut:env(safe-area-inset-top,0px);--pad-bas:env(safe-area-inset-bottom,0px)}
   /* Mode sombre : automatique (prefers-color-scheme) sauf choix explicite [data-theme],
      ou force par data-theme="sombre". Surfaces #0f1115 / #1a1d23. */
   @media (prefers-color-scheme:dark){
@@ -31,14 +31,16 @@
     --repere:#e9ecef;--eco:#5fcf8b;--txt-bleu:#8ab4f8;--txt-rouge:#f28b82;--txt-vert:#5fcf8b;--focus:#8ab4f8}
 
   *{box-sizing:border-box}
+  /* Tailles de police en rem (audit du 30/10/2026) : le zoom texte du navigateur (200 %) agrandit
+     tous les textes ; les boites s'etirent (min-height) plutot que de couper. */
   html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none}
-  body{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  body{font:.9375rem/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
        background:var(--bg);color:var(--ink);font-variant-numeric:tabular-nums}
   a{color:inherit}
   h2,h3{margin:0;font-weight:650}
-  h2{font-size:17px}
-  h3{font-size:15px}
-  code{font-size:12.5px;word-break:break-all}
+  h2{font-size:1.0625rem}
+  h3{font-size:.9375rem}
+  code{font-size:.78125rem;word-break:break-all}
   svg.ico{width:1.15em;height:1.15em;vertical-align:-.2em;flex:none}
   [data-ico]{display:inline-flex;line-height:0}
   :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
@@ -54,7 +56,7 @@
   #map{position:absolute;inset:0;background:var(--bg)}
   .maplibregl-canvas:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
   .sans-webgl{position:absolute;inset:0;display:grid;place-items:center;padding:24px;
-              background:var(--bg);color:var(--muted);text-align:center;font-size:14px}
+              background:var(--bg);color:var(--muted);text-align:center;font-size:.875rem}
   .sans-webgl p{max-width:420px;margin:0}
   .sans-webgl b{color:var(--ink)}
 
@@ -69,7 +71,7 @@
   .recherche{flex:1 1 auto;min-width:0;border-radius:24px}
   .recherche.ouvert{border-radius:var(--rf)}
   .pilule{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:0 16px;
-          border:0;background:none;color:var(--ink);font:inherit;font-size:15px;text-align:left;
+          border:0;background:none;color:var(--ink);font:inherit;font-size:.9375rem;text-align:left;
           border-radius:24px;cursor:pointer}
   .pilule .ico{color:var(--txt-bleu)}
   /* Deux lignes au plus (ecrans etroits, zoom texte) plutot qu'une troncature. */
@@ -79,7 +81,7 @@
   .recherche.ouvert form{display:block}
   .champs{display:grid;grid-template-columns:1fr auto;gap:6px 4px;align-items:center}
   .champ{display:flex;flex-direction:column;gap:1px;min-width:0}
-  .champ span{font-size:11.5px;color:var(--muted);padding-left:2px}
+  .champ span{font-size:.71875rem;color:var(--muted);padding-left:2px}
   .champ input{width:100%;min-height:40px;padding:6px 10px;border:1px solid var(--bord-champ);border-radius:var(--r2);
                background:var(--card);color:var(--ink);font:inherit}
   .champ input.moi{color:var(--txt-bleu);font-weight:600}   /* depart = « Ma position » */
@@ -101,10 +103,11 @@
   .fl:hover{color:var(--ink);background:rgba(127,127,127,.12)}
   .fl:active{transform:rotate(180deg)}
   .ligne{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
-  .ctl{display:inline-flex;gap:6px;align-items:center;font-size:14px}
+  .ctl{display:inline-flex;gap:6px;align-items:center;font-size:.875rem;max-width:100%;flex-wrap:wrap}
+  select{max-width:100%}
   .champ-large{width:100%}
   .champ-large input,.champ-large select{flex:1}
-  .info{color:var(--muted);font-size:13px;margin:8px 0 0}
+  .info{color:var(--muted);font-size:.8125rem;margin:8px 0 0}
   .info:empty{display:none}
 
   .chip{flex:0 1 auto;max-width:46%;min-height:48px;padding:0 14px 0 10px;border:0;border-radius:24px;
@@ -113,13 +116,13 @@
             color:#fff;flex:none}
   .chip-ico .ico{width:16px;height:16px}
   .chip-txt{display:flex;flex-direction:column;min-width:0;line-height:1.2}
-  #chipNom{font-weight:650;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .chip-carb{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #chipNom{font-weight:650;font-size:.84375rem;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
+  .chip-carb{font-size:.71875rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* Crayon : dit que le nom se modifie (Eric, 24/10/2026) — meme signe devant le champ Nom du garage. */
   .chip-crayon{flex:none;color:var(--muted);margin-left:2px}
   .chip-crayon .ico{width:14px;height:14px}
   /* iOS zoome sur un champ sous 16 px au focus : au doigt, les champs passent a 16 px (revue 24/10/2026). */
-  @media (pointer:coarse){ input,select,textarea{font-size:16px} }
+  @media (pointer:coarse){ input,select,textarea{font-size:1rem} }
 
   /* Boutons ronds a droite */
   .boutons-carte{position:absolute;right:12px;top:calc(72px + var(--pad-haut));z-index:15;
@@ -139,14 +142,14 @@
                   filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 2px #fff)}
   .reticule-croix .ico{width:44px;height:44px}
   .reticule-actions{pointer-events:auto;position:absolute;left:12px;right:12px;bottom:calc(112px + var(--pad-bas));
-                    padding:12px;border-radius:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px}
+                    padding:12px;border-radius:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:.875rem}
   .reticule-actions span{flex:1 1 100%}
 
   /* ---------- Feuille glissante (mobile) / panneau (bureau) ---------- */
   .panneau{position:absolute;left:0;right:0;bottom:0;z-index:25;display:flex;flex-direction:column;
            border-radius:var(--rf) var(--rf) 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.14);
            transition:height var(--duree) ease-out;will-change:height}
-  .panneau[data-cran="apercu"]{height:calc(96px + var(--pad-bas))}
+  .panneau[data-cran="apercu"]{height:calc(6rem + var(--pad-bas))}
   .panneau[data-cran="moitie"]{height:50dvh}
   .panneau[data-cran="plein"]{height:calc(100dvh - var(--haut) - 12px - var(--pad-haut))}
   .panneau.glisse{transition:none}
@@ -160,7 +163,7 @@
   .panneau-titre{flex:1;min-width:0}
   .panneau-titre h2{line-height:1.3}
   #lieu{font-weight:450;color:var(--muted)}
-  .etat{margin:0;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .etat{margin:0;font-size:.78125rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .etat .ko{color:var(--txt-rouge)}
   /* Panneau deplie : l'etat s'ecrit en entier (la troncature ne vaut que pour l'apercu de 96 px). */
   .panneau:not([data-cran="apercu"]) .etat{white-space:normal}
@@ -173,52 +176,52 @@
   .bloc-plan{margin:0 0 14px;padding:8px 12px 8px;border:1px solid var(--line);border-radius:14px;background:var(--card)}
   .bloc-plan-tete{display:flex;align-items:baseline;justify-content:space-between;gap:4px 10px;flex-wrap:wrap}
   .bloc-plan-tete h3{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-  .plan-meta{font-size:12.5px;color:var(--muted);white-space:nowrap}
+  .plan-meta{font-size:.78125rem;color:var(--muted);white-space:nowrap}
   .bloc-plan-pied{display:flex;align-items:center;justify-content:space-between;gap:4px 10px;flex-wrap:wrap;margin-top:4px}
   .visuellement-cache{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-  .heros{font-size:13.5px;line-height:1.45}
+  .heros{font-size:.84375rem;line-height:1.45}
   .heros-chiffre{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin:4px 0 0}
-  .heros-chiffre b{font-size:32px;font-weight:600;line-height:1.05;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .heros-chiffre b{font-size:2rem;font-weight:600;line-height:1.05;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
   .heros-chiffre span{color:var(--muted)}
-  .heros-sous{margin:2px 0 0;font-size:13.5px;line-height:1.35}
+  .heros-sous{margin:2px 0 0;font-size:.84375rem;line-height:1.35}
   .heros-sous .eco{color:var(--eco);font-weight:650}
   .heros-sous .eco.nulle{color:var(--muted);font-weight:500}
-  .heros-rappel{margin:3px 0 0;font-size:12px;line-height:1.35;color:var(--muted)}
+  .heros-rappel{margin:3px 0 0;font-size:.75rem;line-height:1.35;color:var(--muted)}
   .heros-etat{margin:6px 0 8px;padding:10px 12px;border-radius:12px;border:1px solid var(--line)}
   .heros-etat.ko{border-color:var(--rouge);background:color-mix(in srgb,var(--rouge) 8%,var(--card));}
   .heros-etat.ok{border-color:var(--vert);background:color-mix(in srgb,var(--vert) 8%,var(--card));}
   .heros-etat.ko b{color:var(--txt-rouge)}
   .heros-etat.ok b{color:var(--txt-vert)}
   .heros-etat .actions{margin-top:8px;gap:6px}
-  .heros-etat .btn{min-height:44px;font-size:13.5px}
+  .heros-etat .btn{min-height:44px;font-size:.84375rem}
   /* Ligne de temps verticale : <ol>, reperes noirs (cercle plein = plein, numero = etape) */
   .ligne-temps{list-style:none;margin:6px 0 0;padding:0;position:relative}
   /* Reperes « noirs » du plan : encre du theme (clairs sur fond sombre, --repere). */
   .ligne-temps::before{content:"";position:absolute;left:11px;top:12px;bottom:12px;width:2px;background:var(--repere);opacity:.35}
   .ligne-temps li{position:relative;display:grid;grid-template-columns:24px 1fr auto;gap:0 8px;align-items:start;min-height:36px;padding:2px 0}
   .lt-pt{width:24px;height:24px;border-radius:50%;background:var(--card);border:2.5px solid var(--repere);display:grid;place-items:center;
-         font-size:11.5px;font-weight:700;color:var(--repere);line-height:1;z-index:1;font-variant-numeric:tabular-nums}
+         font-size:.71875rem;font-weight:700;color:var(--repere);line-height:1;z-index:1;font-variant-numeric:tabular-nums}
   .lt-pt.plein{background:var(--repere);color:var(--card)}
   .lt-pt.pause{border-style:dashed;border-width:2px}
   .lt-txt{min-width:0;padding-top:2px}
   .lt-txt b{font-weight:650}
-  .lt-txt .lt-ligne{display:block;color:var(--muted);font-size:12px;line-height:1.3}
-  .lt-txt .prix{display:inline-block;padding:0 6px;line-height:1.3;border-radius:var(--r3);color:#fff;font-weight:700;font-size:12px;white-space:nowrap}
+  .lt-txt .lt-ligne{display:block;color:var(--muted);font-size:.75rem;line-height:1.3}
+  .lt-txt .prix{display:inline-block;padding:0 6px;line-height:1.3;border-radius:var(--r3);color:#fff;font-weight:700;font-size:.75rem;white-space:nowrap}
   .lt-aller{align-self:center;min-width:44px;min-height:44px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r3);
-            background:var(--card);color:var(--txt-bleu);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+            background:var(--card);color:var(--txt-bleu);font:inherit;font-size:.78125rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
   .lt-aller:hover{background:rgba(127,127,127,.12)}
   .lt-txt .lt-date{color:var(--muted)}
   .lt-txt .lt-date.vieux{color:var(--txt-rouge);font-weight:600}
-  .lt-txt .lt-alerte{display:block;color:var(--txt-rouge);font-size:12px;line-height:1.3;margin-top:2px}
+  .lt-txt .lt-alerte{display:block;color:var(--txt-rouge);font-size:.75rem;line-height:1.3;margin-top:2px}
   .lt-vide{display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:0 10px;margin:3px 4px 1px 0;
            border:1px solid color-mix(in srgb,var(--txt-rouge) 45%,var(--line));border-radius:var(--r3);background:var(--card);
-           color:var(--txt-rouge);font:inherit;font-size:12px;font-weight:600;cursor:pointer;vertical-align:middle}
+           color:var(--txt-rouge);font:inherit;font-size:.75rem;font-weight:600;cursor:pointer;vertical-align:middle}
   .lt-vide:hover{background:color-mix(in srgb,var(--rouge) 8%,var(--card))}
   .lt-vide .ico{width:14px;height:14px}
   /* Faire un detour ? (26/10/2026, remplace les mini-barres par couloir) : une ligne par
      possibilite — titre en minutes, prix du voyage, gain ; ligne choisie cerclee de bleu. */
   .detours{margin:10px 0 2px}
-  .detours-titre{font-size:13px;font-weight:650;margin:0 0 4px}
+  .detours-titre{font-size:.8125rem;font-weight:650;margin:0 0 4px}
   .detours-liste{border:1px solid var(--line);border-radius:12px;overflow:hidden}
   .detour-b{display:grid;grid-template-columns:22px 1fr auto;gap:0 8px;align-items:center;width:100%;min-height:52px;
             padding:7px 10px;border:0;border-top:1px solid var(--line);background:var(--card);color:var(--ink);
@@ -228,19 +231,19 @@
   .detour-b[aria-pressed="true"]{background:color-mix(in srgb,var(--bleu) 10%,var(--card));box-shadow:inset 3px 0 0 var(--txt-bleu)}
   .db-rond{grid-row:1/3;width:18px;height:18px;border-radius:50%;border:2px solid var(--muted)}
   .detour-b[aria-pressed="true"] .db-rond{border-color:var(--txt-bleu);background:radial-gradient(circle,var(--txt-bleu) 0 4px,transparent 5px)}
-  .db-titre{font-weight:650;font-size:14px;min-width:0}
-  .db-prix{font-weight:700;font-size:14px;text-align:right;white-space:nowrap}
-  .db-sous{grid-column:2;font-size:12px;color:var(--muted);line-height:1.3;min-width:0}
-  .db-eco{grid-column:3;font-size:12.5px;font-weight:650;color:var(--eco);text-align:right;white-space:nowrap}
+  .db-titre{font-weight:650;font-size:.875rem;min-width:0}
+  .db-prix{font-weight:700;font-size:.875rem;text-align:right;white-space:nowrap}
+  .db-sous{grid-column:2;font-size:.75rem;color:var(--muted);line-height:1.3;min-width:0}
+  .db-eco{grid-column:3;font-size:.78125rem;font-weight:650;color:var(--eco);text-align:right;white-space:nowrap}
   .db-conseil{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;background:var(--vert);color:#fff;
-              font-size:11px;font-weight:700;vertical-align:1px;letter-spacing:.01em}
-  .detours-note{margin:4px 0 0;font-size:11.5px;color:var(--muted);line-height:1.35}
-  .detours-rien{margin:8px 0 0;font-size:12.5px;color:var(--muted);display:flex;gap:6px;align-items:center}
-  .liste-min{margin:4px 0 0;padding-left:18px;font-size:13px}
+              font-size:.6875rem;font-weight:700;vertical-align:1px;letter-spacing:.01em}
+  .detours-note{margin:4px 0 0;font-size:.71875rem;color:var(--muted);line-height:1.35}
+  .detours-rien{margin:8px 0 0;font-size:.78125rem;color:var(--muted);display:flex;gap:6px;align-items:center}
+  .liste-min{margin:4px 0 0;padding-left:18px;font-size:.8125rem}
   .liste-min li{margin:2px 0}
-  .inter{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer;min-height:44px}
-  .inter.grande{display:flex;flex-wrap:wrap;margin:6px 0 12px;font-size:14.5px}
-  .inter.grande small{flex:1 1 100%;color:var(--muted);font-size:12.5px;padding-left:48px}
+  .inter{display:inline-flex;align-items:center;gap:8px;font-size:.84375rem;cursor:pointer;min-height:44px}
+  .inter.grande{display:flex;flex-wrap:wrap;margin:6px 0 12px;font-size:.90625rem}
+  .inter.grande small{flex:1 1 100%;color:var(--muted);font-size:.78125rem;padding-left:48px}
   .inter input{appearance:none;width:40px;height:24px;margin:0;border-radius:12px;background:var(--interrupteur);
                position:relative;cursor:pointer;flex:none;transition:background var(--duree)}
   .inter input::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;
@@ -253,7 +256,7 @@
            display:grid;place-items:center;font:inherit;border-radius:50%;transition:transform var(--duree)}
   .replier[aria-expanded="false"]{transform:rotate(-90deg)}
   #secStations.replie #listeZone{display:none}
-  .legende{display:flex;gap:6px 12px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin:4px 0 2px}
+  .legende{display:flex;gap:6px 12px;align-items:center;flex-wrap:wrap;font-size:.78125rem;color:var(--muted);margin:4px 0 2px}
   .legende span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
   .sw{width:18px;height:10px;border-radius:3px;display:inline-block}
   .sw-plan{background:none;border:2px solid var(--repere);box-sizing:border-box}
@@ -262,10 +265,10 @@
   svg.ico.marque{width:.9em;height:.9em;vertical-align:-.08em;margin-right:1px}
   .marque-leg{color:var(--muted);margin-left:-4px}
   .marque-leg .ico{width:.9em;height:.9em}
-  .compte{font-size:12.5px;color:var(--muted);margin:0 0 6px}
-  .tri{display:flex;gap:4px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin:0 0 8px}
+  .compte{font-size:.78125rem;color:var(--muted);margin:0 0 6px}
+  .tri{display:flex;gap:4px;align-items:center;flex-wrap:wrap;font-size:.78125rem;color:var(--muted);margin:0 0 8px}
   .tri button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:var(--r3);
-              padding:4px 10px;font:inherit;font-size:12.5px;cursor:pointer;min-height:32px}
+              padding:4px 10px;font:inherit;font-size:.78125rem;cursor:pointer;min-height:32px}
   .tri button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
   .stations{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
   .carte{width:100%;text-align:left;border:1px solid var(--line);background:var(--card);border-radius:14px;
@@ -273,32 +276,32 @@
          font:inherit;color:inherit;cursor:pointer;min-height:56px}
   .carte:hover{box-shadow:var(--ombre-2)}
   .carte.etape{border-color:var(--repere);border-width:2px}
-  .carte .ville{font-weight:650;font-size:14.5px}
-  .carte .cp{color:var(--muted);font-weight:400;font-size:12.5px}
-  .carte .adr{color:var(--muted);font-size:12.5px;grid-column:1/3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .carte .ville{font-weight:650;font-size:.90625rem}
+  .carte .cp{color:var(--muted);font-weight:400;font-size:.78125rem}
+  .carte .adr{color:var(--muted);font-size:.78125rem;grid-column:1/3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
   .carte .prix{grid-row:1/3;grid-column:2;display:flex;flex-direction:column;gap:3px;align-items:flex-end}
-  .carte .meta{grid-column:1/3;font-size:12px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
-  .vide{color:var(--muted);font-size:13.5px;padding:10px 4px}
+  .carte .meta{grid-column:1/3;font-size:.75rem;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
+  .vide{color:var(--muted);font-size:.84375rem;padding:10px 4px}
 
   /* Pastilles de prix (liste), badges du plan (noir), etiquettes de la carte */
   .pill{display:inline-block;padding:2px 8px;border-radius:var(--r3);color:#fff;font-weight:700;
-        font-size:12.5px;white-space:nowrap}
+        font-size:.78125rem;white-space:nowrap}
   .badge{background:var(--noir);box-shadow:inset 0 0 0 1px #9ca3af;color:#fff;border-radius:6px;
-         padding:1px 6px;font-size:11.5px;font-weight:700;white-space:nowrap}
+         padding:1px 6px;font-size:.71875rem;font-weight:700;white-space:nowrap}
   .badge-min{background:var(--vert);box-shadow:none}
   /* Pays (Espagne) : badge « ES » sobre, texte seulement, lisible en clair comme en sombre */
   .badge-pays{background:var(--card);color:var(--ink);box-shadow:inset 0 0 0 1px var(--muted);
-              font-size:10.5px;letter-spacing:.06em;vertical-align:1px}
+              font-size:.65625rem;letter-spacing:.06em;vertical-align:1px}
   .infos .ferme{color:var(--txt-rouge);font-weight:600}
   .lbl{background:#fff;border:1.5px solid #333;border-radius:var(--r3);padding:1px 6px;
-       font:700 12.5px system-ui;color:#111;white-space:nowrap;text-align:center;
+       font:700 .78125rem system-ui;color:#111;white-space:nowrap;text-align:center;
        box-shadow:0 1px 4px rgba(0,0,0,.28);cursor:pointer;font-variant-numeric:tabular-nums}
   .lbl2{border-radius:11px;padding:2px;display:flex;flex-direction:column;gap:2px;
         border-color:#9aa3ad;line-height:1.25}
-  .lbl2 span{white-space:nowrap;font-size:11.5px;color:#fff;border-radius:8px;
+  .lbl2 span{white-space:nowrap;font-size:.71875rem;color:#fff;border-radius:8px;
              padding:1px 5px;text-align:center}
   /* Station en rupture du carburant choisi : grise, sous les prix, hors classement */
-  .lbl-ko{background:var(--ko-fond);border-color:var(--ko-fond);color:#fff;font-size:11px;font-weight:600}
+  .lbl-ko{background:var(--ko-fond);border-color:var(--ko-fond);color:#fff;font-size:.6875rem;font-weight:600}
   .lbl-ko.pastille{width:18px;height:18px;padding:0;border-radius:50%;display:grid;place-items:center}
   .lbl-ko.pastille .ico{width:12px;height:12px}
   .marqueur{border:0;background:none;padding:0;font:inherit;cursor:pointer;min-width:44px;min-height:44px;display:grid;place-items:center}
@@ -315,7 +318,7 @@
      de 44 px. Puissance inconnue : grise, trait pointille. */
   .lbl-b{display:inline-flex;align-items:center;gap:3px;min-height:28px;padding:2px 8px 2px 6px;border-radius:14px;
          background:var(--elec-moyen);color:#fff;border:1.5px solid rgba(255,255,255,.9);box-shadow:0 1px 4px rgba(0,0,0,.35);
-         font:700 12px system-ui;white-space:nowrap;font-variant-numeric:tabular-nums}
+         font:700 .75rem system-ui;white-space:nowrap;font-variant-numeric:tabular-nums}
   .lbl-b .ico{width:14px;height:14px}
   .lbl-b.rapide{background:var(--elec-rapide)}
   .lbl-b.lent{background:var(--elec-lent)}
@@ -328,17 +331,17 @@
   .sw-b.inconnu{background:none;border:2px dashed var(--elec-inconnu);box-sizing:border-box}
   /* Arrets numerotes du plan de charge (carte) : cercle noir plein, numero blanc. */
   .etape-num{width:30px;height:30px;border-radius:50%;background:var(--noir);color:#fff;display:grid;place-items:center;
-             font:700 13px system-ui;box-shadow:0 0 0 2px #fff,0 1px 4px rgba(0,0,0,.4);pointer-events:none;font-variant-numeric:tabular-nums}
+             font:700 .8125rem system-ui;box-shadow:0 0 0 2px #fff,0 1px 4px rgba(0,0,0,.4);pointer-events:none;font-variant-numeric:tabular-nums}
   /* Cartes de la liste des bornes : pastille kW a droite, badges d'etape */
-  .carte .kw{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:var(--r3);color:#fff;font-weight:700;font-size:12.5px;white-space:nowrap;background:var(--elec-moyen)}
+  .carte .kw{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:var(--r3);color:#fff;font-weight:700;font-size:.78125rem;white-space:nowrap;background:var(--elec-moyen)}
   .carte .kw.rapide{background:var(--elec-rapide)} .carte .kw.lent{background:var(--elec-lent)} .carte .kw.inconnu{background:var(--elec-inconnu)}
   .carte .kw .ico{width:13px;height:13px}
   .carte .ancien{color:var(--txt-rouge)}
   .filtres{margin:2px 0 8px;gap:6px}
-  .filtres .case{font-size:12.5px;min-height:36px;padding:2px 10px}
+  .filtres .case{font-size:.78125rem;min-height:36px;padding:2px 10px}
   .filtres .ctl .ico{color:var(--muted)}
-  .filtres select{min-height:36px;padding:4px 8px;font-size:13px}
-  .details{margin:8px 0 0;padding:0;list-style:none;font-size:14px}
+  .filtres select{min-height:36px;padding:4px 8px;font-size:.8125rem}
+  .details{margin:8px 0 0;padding:0;list-style:none;font-size:.875rem}
   .details li{display:grid;grid-template-columns:24px 1fr;gap:8px;align-items:start;padding:5px 0;border-top:1px dotted var(--line)}
   .details li .ico{color:var(--muted);margin-top:2px}
   .details li b{font-weight:600}
@@ -346,23 +349,23 @@
   /* Garage et assistant : puissances courantes en chips (reglent le champ voisin) */
   .chips-kw{display:inline-flex;gap:4px;flex-wrap:wrap}
   .chips-kw button{min-height:40px;min-width:44px;padding:4px 10px;border:1px solid var(--line);border-radius:var(--r3);background:var(--card);
-                   color:var(--ink);font:inherit;font-size:13px;cursor:pointer;font-variant-numeric:tabular-nums}
+                   color:var(--ink);font:inherit;font-size:.8125rem;cursor:pointer;font-variant-numeric:tabular-nums}
   .chips-kw button[aria-pressed="true"]{background:var(--bleu);border-color:var(--bleu);color:#fff}
   #vbatt,#vconsoKwh,#vkwdc,#vkwac,#vreservePct,#vdepartPct{width:72px;padding:6px 8px;border:1px solid var(--bord-champ);border-radius:var(--r2);
         background:var(--card);color:var(--ink);font:inherit;min-height:40px}
-  #asBatt{width:140px;font-size:22px;font-weight:600;min-height:48px;padding:6px 10px;border:2px solid var(--txt-bleu);border-radius:var(--r2);
+  #asBatt{width:140px;font-size:1.375rem;font-weight:600;min-height:48px;padding:6px 10px;border:2px solid var(--txt-bleu);border-radius:var(--r2);
           background:var(--card);color:var(--ink);font-variant-numeric:tabular-nums}
   #asConsoKwh,#asKwDc,#asKwAc,#asReservePct,#asDepartPct{width:80px;padding:6px 8px;border:1px solid var(--bord-champ);border-radius:var(--r2);
           background:var(--card);color:var(--ink);font:inherit;min-height:40px}
   .as-energies{grid-template-columns:repeat(2,1fr);max-width:320px}
   /* Plan de charge : chips de couloir (bornes a N km de la route au plus) et etat de charge au depart */
-  .couloir-chips{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin:6px 0 0;font-size:12.5px;color:var(--muted)}
+  .couloir-chips{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin:6px 0 0;font-size:.78125rem;color:var(--muted)}
   .couloir-chips button{min-height:36px;min-width:44px;padding:2px 10px;border:1px solid var(--line);border-radius:var(--r3);background:var(--card);
-                        color:var(--ink);font:inherit;font-size:12.5px;cursor:pointer;font-variant-numeric:tabular-nums}
+                        color:var(--ink);font:inherit;font-size:.78125rem;cursor:pointer;font-variant-numeric:tabular-nums}
   .couloir-chips button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
-  .couloir-chips input{width:60px;min-height:36px;padding:2px 6px;border:1px solid var(--bord-champ);border-radius:var(--r2);background:var(--card);color:var(--ink);font:inherit;font-size:13px}
+  .couloir-chips input{width:60px;min-height:36px;padding:2px 6px;border:1px solid var(--bord-champ);border-radius:var(--r2);background:var(--card);color:var(--ink);font:inherit;font-size:.8125rem}
   .lt-pt.elec{background:var(--repere);color:var(--card);border-color:var(--repere)}
-  .lt-txt .kwb{display:inline-block;padding:0 6px;line-height:1.3;border-radius:var(--r3);color:#fff;font-weight:700;font-size:12px;white-space:nowrap;background:var(--elec-moyen)}
+  .lt-txt .kwb{display:inline-block;padding:0 6px;line-height:1.3;border-radius:var(--r3);color:#fff;font-weight:700;font-size:.75rem;white-space:nowrap;background:var(--elec-moyen)}
   .lt-txt .kwb.rapide{background:var(--elec-rapide)} .lt-txt .kwb.lent{background:var(--elec-lent)} .lt-txt .kwb.inconnu{background:var(--elec-inconnu)}
 
   .fuels{margin:7px 0 0;padding:0;list-style:none}
@@ -371,24 +374,24 @@
   .fuels li.hi b{color:var(--txt-bleu)}
   .fuels li.hi{font-weight:600}
   .fuels li.ko b{text-decoration:line-through;opacity:.55}
-  .fuels .dt{font-size:11.5px;color:var(--muted)}
+  .fuels .dt{font-size:.71875rem;color:var(--muted)}
   .fuels .dt.vieux{color:var(--txt-rouge)}
-  .fuels .ko-lbl{color:var(--txt-rouge);font-size:12px}
-  .fuels .corr-lbl{color:var(--txt-bleu);font-size:12px}
+  .fuels .ko-lbl{color:var(--txt-rouge);font-size:.75rem}
+  .fuels .corr-lbl{color:var(--txt-bleu);font-size:.75rem}
   .fuels li{grid-template-columns:1fr auto auto auto}
   .fs-edit{border:0;background:none;color:var(--muted);min-width:40px;min-height:40px;border-radius:50%;cursor:pointer;
            display:grid;place-items:center}
   .fs-edit:hover,.fs-edit:focus-visible{color:var(--ink);background:rgba(127,127,127,.12)}
   .fuels li.fs-corr{display:block;padding:8px 0 10px;border-bottom:1px solid var(--line)}
-  .fs-corr label{display:flex;align-items:center;gap:6px;font-size:14px}
+  .fs-corr label{display:flex;align-items:center;gap:6px;font-size:.875rem}
   .fs-corr input{width:7em;min-height:40px;padding:6px 8px;border:1px solid var(--bord-champ);border-radius:var(--r2);
                  background:var(--card);color:var(--ink);font:inherit}
   .fs-corr .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
   .fs-corr .note{margin:6px 0 0}
   .adresse{margin:2px 0 0;color:var(--muted)}
-  .infos{margin:6px 0 0;font-size:13.5px;display:flex;gap:6px 12px;flex-wrap:wrap;align-items:center}
-  .note{color:var(--muted);font-size:12.5px;margin:8px 0 0;line-height:1.55}
-  .sous-titre{margin:10px 0 0;font-size:13px;color:var(--muted)}
+  .infos{margin:6px 0 0;font-size:.84375rem;display:flex;gap:6px 12px;flex-wrap:wrap;align-items:center}
+  .note{color:var(--muted);font-size:.78125rem;margin:8px 0 0;line-height:1.55}
+  .sous-titre{margin:10px 0 0;font-size:.8125rem;color:var(--muted)}
   .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 
   /* Boutons, cases, champs */
@@ -403,7 +406,7 @@
   .btn[aria-pressed="true"]{border-color:var(--ink)}
   .case{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;min-height:40px;
         border:1px solid var(--line);border-radius:var(--r3);cursor:pointer;
-        white-space:nowrap;font-size:13.5px;background:var(--card);transition:background var(--duree)}
+        white-space:nowrap;font-size:.84375rem;background:var(--card);transition:background var(--duree)}
   .case:has(input:checked){background:var(--bleu);border-color:var(--bleu);color:#fff}
   .case input{margin:0}
   #vnom{width:150px}
@@ -413,33 +416,33 @@
   #posQ{min-height:40px;padding:6px 10px;border:1px solid var(--bord-champ);border-radius:var(--r2);
         background:var(--card);color:var(--ink);font:inherit}
 
-  .msg{margin:6px 0 0;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .msg{margin:6px 0 0;font-size:.84375rem;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .msg:empty{display:none}
   .msg .btn{min-height:36px;padding:4px 10px}
-  .erreur{color:var(--txt-rouge);font-size:13px;margin:6px 0 0}
+  .erreur{color:var(--txt-rouge);font-size:.8125rem;margin:6px 0 0}
   .erreur:empty{display:none}
   #vcat{max-width:170px}
 
   /* ---------- Assistant vehicule (premier lancement) ---------- */
   .assistant .modale-tete{gap:10px}
-  .as-compteur{margin-left:auto;font-size:12.5px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .as-compteur{margin-left:auto;font-size:.78125rem;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
   .as-types{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:4px 0}
   .as-type{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:64px;padding:8px 4px;
-           border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);font:inherit;font-size:12.5px;cursor:pointer}
+           border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);font:inherit;font-size:.78125rem;cursor:pointer}
   .as-type .ico{width:26px;height:26px;color:var(--txt-bleu)}
   .as-type[aria-pressed="true"]{border-color:var(--txt-bleu);box-shadow:inset 0 0 0 1px var(--txt-bleu);background:color-mix(in srgb,var(--bleu) 8%,var(--card))}
   .as-cats{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0}
   .as-cats:empty{display:none}
-  .as-cat{min-height:40px;padding:4px 12px;border:1px solid var(--line);border-radius:var(--r3);background:var(--card);color:var(--ink);font:inherit;font-size:13.5px;cursor:pointer}
+  .as-cat{min-height:40px;padding:4px 12px;border:1px solid var(--line);border-radius:var(--r3);background:var(--card);color:var(--ink);font:inherit;font-size:.84375rem;cursor:pointer}
   .as-cat[aria-pressed="true"]{background:var(--bleu);border-color:var(--bleu);color:#fff}
-  .as-principal{display:block;font-weight:650;font-size:15px;margin-top:14px}
+  .as-principal{display:block;font-weight:650;font-size:.9375rem;margin-top:14px}
   #asHybrideLbl{margin-top:6px}
   .as-principal-ligne{margin-top:4px;align-items:center}
-  #asAutonomie{width:140px;font-size:22px;font-weight:600;min-height:48px;padding:6px 10px;border:2px solid var(--txt-bleu);border-radius:var(--r2);
+  #asAutonomie{width:140px;font-size:1.375rem;font-weight:600;min-height:48px;padding:6px 10px;border:2px solid var(--txt-bleu);border-radius:var(--r2);
                background:var(--card);color:var(--ink);font-variant-numeric:tabular-nums}
   #asConso,#asCuve,#asReserve{width:80px;padding:6px 8px;border:1px solid var(--bord-champ);border-radius:var(--r2);background:var(--card);color:var(--ink);font:inherit;min-height:40px}
   .as-conso-choix{align-items:center}
-  .as-pret{font-size:20px;font-weight:650;margin:4px 0 6px;display:flex;align-items:center;gap:8px}
+  .as-pret{font-size:1.25rem;font-weight:650;margin:4px 0 6px;display:flex;align-items:center;gap:8px}
   .as-pret .ico{color:var(--vert);width:26px;height:26px}
   #asResume li b{font-variant-numeric:tabular-nums}
 
@@ -454,23 +457,23 @@
   .choix-item{display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;min-height:48px;padding:8px 12px;
               border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);
               font:inherit;text-align:left;cursor:pointer}
-  .choix-item small{color:var(--muted);font-size:12.5px;margin-left:auto}
+  .choix-item small{color:var(--muted);font-size:.78125rem;margin-left:auto}
   .choix-item .ico{color:var(--txt-bleu)}
   .choix-item:hover{box-shadow:var(--ombre-2)}
   .choix-item[aria-pressed="true"]{border-color:var(--txt-bleu);box-shadow:inset 0 0 0 1px var(--txt-bleu)}
-  .puces{margin:6px 0;padding-left:20px;font-size:14px;line-height:1.55}
+  .puces{margin:6px 0;padding-left:20px;font-size:.875rem;line-height:1.55}
   .puces li{margin:6px 0}
 
   /* Bandeau « nouvelle version » */
   .maj-dispo{position:fixed;left:50%;bottom:calc(110px + var(--pad-bas));transform:translateX(-50%);z-index:60;
              display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;
-             max-width:calc(100vw - 24px);padding:10px 14px;border-radius:14px;font-size:14px}
+             max-width:calc(100vw - 24px);padding:10px 14px;border-radius:14px;font-size:.875rem}
 
   /* Controles MapLibre : attribution au-dessus de l'apercu de la feuille ; zoom +/- sur bureau seulement */
   .maplibregl-ctrl-bottom-right{bottom:calc(100px + var(--pad-bas))}
   .maplibregl-ctrl-bottom-left{bottom:calc(100px + var(--pad-bas))}
   .maplibregl-ctrl-top-right{display:none}
-  .maplibregl-ctrl-attrib{font:11px system-ui;background:var(--surface) !important;color:var(--ink)}
+  .maplibregl-ctrl-attrib{font:.6875rem system-ui;background:var(--surface) !important;color:var(--ink)}
   .maplibregl-ctrl-attrib a{color:inherit}
   .maplibregl-ctrl-group{background:var(--surface);box-shadow:var(--ombre-2) !important}
   .maplibregl-ctrl-group button{width:40px;height:40px}
