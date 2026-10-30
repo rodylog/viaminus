@@ -2265,14 +2265,43 @@ function situerBorne(b){
 // rendu() est appele partout ou l'etait l'ancien rendu : vehicule electrique -> renduElec()
 // (bornes + plan de charge) ; thermique -> renduCarburant() tel quel, puis les bornes si demandees.
 let PLAN_ICO = 'pompe';
+// Le focus survit au re-rendu du panneau (liste refaite a chaque deplacement de la carte, plan
+// refait a chaque choix de detour) : l'element actif est retrouve par son data-id (carte de
+// station ou de borne), sinon par sa classe et son rang dans le panneau. Sans cela, un
+// utilisateur au clavier retombait sur le corps de la page apres chaque redessin (audit du 30/10/2026).
+function focusPanneau(){
+  const a = document.activeElement;
+  if(!a || !$('corps').contains(a) || !a.classList.length) return null;
+  const cls = a.classList[0];
+  return {cls, id: a.dataset.id || null, i: [...$('corps').querySelectorAll('.' + CSS.escape(cls))].indexOf(a)};
+}
+function restaurerFocus(f){
+  if(!f || $('corps').contains(document.activeElement) && document.activeElement !== document.body) return;
+  let el = f.id ? $('corps').querySelector(`.${CSS.escape(f.cls)}[data-id="${CSS.escape(f.id)}"]`) : null;
+  if(!el && f.i >= 0) el = $('corps').querySelectorAll('.' + CSS.escape(f.cls))[f.i] || null;
+  if(el && el.offsetParent !== null) el.focus({preventScroll: true});
+}
 function rendu(){
+  const f = focusPanneau();
   const elec = estElec();
   if(PLAN_ICO !== (elec ? 'eclair' : 'pompe')){ PLAN_ICO = elec ? 'eclair' : 'pompe'; $('planIco').innerHTML = ico(PLAN_ICO); }
-  if(elec){ renduElec(); return; }
-  $('secStations').hidden = false;
-  renduCarburant();
-  renduBornes(false, null);
+  if(elec) renduElec();
+  else{
+    $('secStations').hidden = false;
+    renduCarburant();
+    renduBornes(false, null);
+  }
+  restaurerFocus(f);
 }
+// Lien d'evitement : la liste visible (stations, ou bornes pour un vehicule electrique), panneau
+// deplie sur mobile, focus sur la premiere carte (sinon sur la liste elle-meme).
+$('evitement').addEventListener('click', e => {
+  e.preventDefault();
+  deplier('plein');
+  const l = estElec() ? $('listeBornes') : $('liste');
+  (l.querySelector('.carte') || l).focus();
+  l.scrollIntoView({block: 'start'});
+});
 // Construction DOM (textContent, jamais innerHTML sur une chaine externe).
 const mk = (tag, cls, ...enfants) => {
   const e = document.createElement(tag);

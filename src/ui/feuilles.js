@@ -119,6 +119,22 @@ function fermerFeuille(){
 }
 voile.addEventListener('click', fermerFeuille);
 document.querySelectorAll('.modale .fermer').forEach(b => b.addEventListener('click', fermerFeuille));
+// Groupes de boutons (role="group" ou "toolbar" : tri, types de vehicule, categories, puissances,
+// detours, fond de carte, apparence) : les fleches passent d'un bouton au suivant, comme dans
+// une barre d'outils. Seuls les boutons sont concernes (une fleche dans un select change sa valeur).
+document.addEventListener('keydown', e => {
+  if(!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key) || e.altKey || e.ctrlKey || e.metaKey) return;
+  const a = document.activeElement;
+  if(!a || a.tagName !== 'BUTTON') return;
+  const g = a.closest('[role="group"],[role="toolbar"]');
+  if(!g) return;
+  const bs = [...g.querySelectorAll('button:not([disabled])')].filter(b => b.offsetParent !== null);
+  const i = bs.indexOf(a);
+  if(i < 0 || bs.length < 2) return;
+  const suivant = e.key === 'ArrowRight' || e.key === 'ArrowDown';
+  bs[(i + (suivant ? 1 : bs.length - 1)) % bs.length].focus();
+  e.preventDefault();
+});
 // Le focus reste dans la feuille ouverte (Tab cyclique) ; Echap ferme tout ce qui peut l'etre.
 document.addEventListener('keydown', e => {
   if(e.key === 'Escape'){

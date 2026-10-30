@@ -14,6 +14,7 @@ __APP_CSS__
 </style>
 </head>
 <body>
+<a class="evitement" href="#liste" id="evitement">Aller à la liste des stations</a>
 <div id="app">
   <div id="map" aria-label="Carte des stations"></div>
   <div id="sansWebgl" class="sans-webgl" hidden>
@@ -136,7 +137,7 @@ __APP_CSS__
             <button type="button" data-k="ville" aria-pressed="false">Commune</button>
             <button type="button" data-k="maj" aria-pressed="false">Relevé</button>
           </div>
-          <ol id="liste" class="stations" aria-label="Stations"></ol>
+          <ol id="liste" class="stations" aria-label="Stations" tabindex="-1"></ol>
         </div>
       </section>
       <!-- Bornes de recharge (phase 2, 30/10/2026) : seule liste pour un vehicule electrique ; pour un
@@ -175,7 +176,7 @@ __APP_CSS__
             <button type="button" data-kb="dist" id="thDistB" aria-pressed="true">Distance</button>
             <button type="button" data-kb="kw" aria-pressed="false">Puissance</button>
           </div>
-          <ol id="listeBornes" class="stations" aria-label="Bornes de recharge"></ol>
+          <ol id="listeBornes" class="stations" aria-label="Bornes de recharge" tabindex="-1"></ol>
         </div>
       </section>
     </div>

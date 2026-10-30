@@ -43,6 +43,11 @@
   [data-ico]{display:inline-flex;line-height:0}
   :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
   [hidden]{display:none !important}
+  /* Lien d'evitement (clavier, lecteur d'ecran) : premier element de la page, visible au focus seulement. */
+  .evitement{position:fixed;left:8px;top:8px;z-index:100;padding:10px 14px;border-radius:var(--r2);
+             background:var(--card);color:var(--ink);font-weight:600;box-shadow:var(--ombre);
+             clip:rect(0 0 0 0);clip-path:inset(50%);width:1px;height:1px;overflow:hidden;white-space:nowrap}
+  .evitement:focus{clip:auto;clip-path:none;width:auto;height:auto;overflow:visible}
 
   /* ---------- La carte est l'ecran ---------- */
   #app{position:fixed;inset:0}
@@ -288,7 +293,7 @@
   .lbl-ko{background:var(--ko-fond);border-color:var(--ko-fond);color:#fff;font-size:11px;font-weight:600}
   .lbl-ko.pastille{width:18px;height:18px;padding:0;border-radius:50%;display:grid;place-items:center}
   .lbl-ko.pastille .ico{width:12px;height:12px}
-  .marqueur{border:0;background:none;padding:0;font:inherit;cursor:pointer}
+  .marqueur{border:0;background:none;padding:0;font:inherit;cursor:pointer;min-width:44px;min-height:44px;display:grid;place-items:center}
   .marqueur:focus-visible .lbl{outline:2px solid var(--focus);outline-offset:2px}
   /* Reperes du plan : cercle noir (pointille = etape, plein = depart/arrivee) */
   .etape-rond{width:36px;height:36px;border-radius:50%;border:3px dashed var(--noir);
@@ -499,6 +504,8 @@
     #asConso,#asCuve,#asReserve,#asPosQ,.as-cat,.msg .btn,.chips-kw button,.couloir-chips button,.filtres .case,.filtres select,
     #vbatt,#vconsoKwh,#vkwdc,#vkwac,#vreservePct,#vdepartPct,#asConsoKwh,#asKwDc,#asKwAc,#asReservePct,#asDepartPct{min-height:44px}
     .rond.petit{width:44px;height:44px}
+    .fs-edit{min-width:44px;min-height:44px}
+    .lt-vide,.couloir-chips input{min-height:44px}
   }
   /* Mouvement reduit : aucune transition ; les animations de camera sont deja coupees en JS */
   @media (prefers-reduced-motion:reduce){
