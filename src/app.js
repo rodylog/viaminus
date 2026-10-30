@@ -383,6 +383,14 @@ function emprise(){
 }
 const dansEmprise = (b, la, lo) => la >= b.s && la <= b.n && lo >= b.w && lo <= b.e;
 
+// Point d'acces de test (banc/) : dernier plan calcule par rendu(), en donnees, dans
+// window.__viaminus_plan, et le meme objet dans l'evenement viaminus:plan. Inerte pour
+// l'utilisateur : rien d'affiche, aucune requete, aucune donnee personnelle.
+function publierPlan(p){
+  try{ window.__viaminus_plan = p; window.dispatchEvent(new CustomEvent('viaminus:plan', {detail: p})); }
+  catch(e){ /* sans effet */ }
+}
+
 // ---------- Rendu : marqueurs, liste en cartes, bloc plan ----------
 function rendu(){
   const sel = choix();
@@ -550,6 +558,7 @@ function rendu(){
     const ouvrirGarage = champ => { appliquerVeh(); ouvrirFeuille('garage', $('chipVeh')); if(champ) $(champ).focus(); };
     const heros = [];
     let resume = '';
+    let sonde = null;   // point d'acces de test (banc/) : le plan en donnees, publie apres le rendu
 
     if(!(conso > 0) || !au){
       // Etat : conso ou autonomie manquante.
@@ -559,6 +568,7 @@ function rendu(){
           bouton('btn primaire', 'Compléter le véhicule', () => ouvrirGarage(!(conso > 0) ? 'conso' : 'autonomie'), 'garage'),
           bouton('btn', 'Assistant', () => ASSISTANT.ouvrir(REGL.vehicules[REGL.vehActif]), 'estimer'))));
       resume = 'Plan de pleins : véhicule à compléter.';
+      sonde = {etat: 'vehicule-incomplet'};
     }else{
       const A = au.A;
       // A bord au depart (km, facultatif, Eric 24/10/2026) : vide = on part le plein fait ;
@@ -609,13 +619,17 @@ function rendu(){
         const pmin = Math.min(...pres.map(c => c.p));
         return (2 * Math.min(...pres.filter(c => c.p <= pmin + 1e-9).map(c => c.e))) / 50 * 60;
       };
-      let detours = [1, 2, 5, 10, 20].map(w => {
+      // Toutes les largeurs calculees sont gardees (largeurs) pour le point d'acces de test ;
+      // detours ne retient que les faisables, puis les utiles.
+      const largeurs = [1, 2, 5, 10, 20].map(w => {
         const cw = candTous.filter(c => c.e <= w);
         const rw = optimiserPlan(cw, A, total, lkm, {g0});
         const v = coutVoyage(cw, rw, total, lkm);
-        return rw.plan == null || v == null ? null
-          : {w, v, min: rw.plan.reduce((t, e) => t + minutes(e), 0) + detourDepart(cw), arrets: rw.plan.length};
-      }).filter(Boolean);
+        const ok = rw.plan != null && v != null;
+        return {w, ok, v: ok ? v : null, achats: ok ? rw.coutAchats : null, arrets: ok ? rw.plan.length : null,
+                min: ok ? rw.plan.reduce((t, e) => t + minutes(e), 0) + detourDepart(cw) : null};
+      });
+      let detours = largeurs.filter(o => o.ok).map(o => ({w: o.w, v: o.v, min: o.min, arrets: o.arrets}));
       detours = detours.filter((o, i) => !detours.some((p, j) => j !== i &&
         p.v <= o.v + 0.05 && p.min <= o.min + 0.5 && (p.v < o.v - 0.05 || p.min < o.min - 0.5 || j < i)));
       detours.sort((a, b) => a.min - b.min || a.v - b.v);
@@ -704,8 +718,13 @@ function rendu(){
         const j = (Date.now() - new Date(m)) / 864e5;
         return j >= 1 ? el('span', 'lt-date' + (j >= 4 ? ' vieux' : ''), ` · prix du ${jour(m)}`) : null;
       };
-      const alerteFige = c => c.fige ? el('span', 'lt-alerte', svg('alerte'),
-        ` prix figé depuis le ${jour(c.fige)} alors que la station déclare ses autres carburants : à vérifier avant d'y aller`) : null;
+      const alertes = [];   // alertes « prix figé » affichees {ou, id, texte} (point d'acces de test)
+      const alerteFige = (c, ou) => {
+        if(!c.fige) return null;
+        const texte = `prix figé depuis le ${jour(c.fige)} alors que la station déclare ses autres carburants : à vérifier avant d'y aller`;
+        alertes.push({ou, id: brut(c.s.id), texte});
+        return el('span', 'lt-alerte', svg('alerte'), ' ' + texte);
+      };
       const repli = (c, portee) => {
         let best = null;
         candTous.forEach(x => {
@@ -738,7 +757,7 @@ function rendu(){
         ol.append(item('lt-depart', {plein: true, txt: ''}, aBord != null ? `Départ · réservoir ≈ ${Math.round(aBord)} km${aBordL ? ` (${aBordBrut} L)` : ''}` : 'Départ · plein',
           aBord != null ? [] :
           depart ? [[nomVille(depart.s), ' · km ', String(Math.round(depart.km)), ' · ', ...chipPrix(depart), datePrix(depart)],
-                    alerteFige(depart), secours(depart, 30)]
+                    alerteFige(depart, 'depart'), secours(depart, 30)]
                  : ['aucune station à moins de 15 km du départ avec ce détour — partez le réservoir plein'],
           aBord == null && depart ? depart.s : null));
         const etapes = plan || [];
@@ -748,7 +767,7 @@ function rendu(){
             [[`km ${Math.round(e.km)} · `, ...chipPrix(e), datePrix(e)],
              `${e.plein ? 'le plein' : 'juste ce qu\'il faut'} : ≈ ${Math.round(e.litres)} L (${euros(e.p * lkm * e.q)}) · à bord en arrivant ≈ ${Math.round(e.arrivee + reserve)} km`,
              `détour ${(2 * e.e).toFixed(1).replace('.', ',')} km (+${euros(2 * e.e * lkm * e.p)}) · ≈ ${Math.round(minutes(e))} min`,
-             alerteFige(e), secours(e, e.arrivee + reserve)],
+             alerteFige(e, 'etape'), secours(e, e.arrivee + reserve)],
             e.s));
         });
         if(ROUTE_AR){
@@ -856,8 +875,42 @@ function rendu(){
         resume = `Plan de pleins : ${plan.length} arrêt${plan.length > 1 ? 's' : ''}${voyage != null ? `, carburant du voyage ${euros(voyage)}` : ''}` +
                  (eco && Math.abs(eco.economie) >= 0.05 ? `, ${eco.economie > 0 ? 'économie' : 'surcoût'} de ${euros(Math.abs(eco.economie))} par rapport au plus cher du trajet` : '') + '.';
       }
+      // Point d'acces de test (banc/, 30/10/2026) : le plan tel qu'il vient d'etre calcule, en
+      // donnees — stations retenues (id, km, litres, prix, date du prix), couts, economie, largeurs
+      // comparees, alertes. Lu par window.__viaminus_plan ou l'evenement viaminus:plan (voir
+      // publierPlan). Rien pour l'utilisateur : aucun DOM, aucune requete, aucune donnee
+      // personnelle (des stations du flux officiel et des noms de villes).
+      const sondeStation = (c, plus) => Object.assign({id: brut(c.s.id), ville: brut(c.s.ville), cp: brut(c.s.cp),
+        km: c.km, detourKm: c.e, prix: c.p, datePrix: c.v.lignes[0].maj || null, fige: c.fige || null,
+        carburants: c.v.lignes.map(l => ({ref: l.ref, prix: l.prix, maj: l.maj || null}))}, plus || {});
+      sonde = {
+        etat: plan === null ? 'infaisable' : plan.length ? 'arrets' : 'aucun-arret',
+        couloir: larg, detourAuto: DETOUR_AUTO,
+        vehicule: {carburant: carbPlan, conso, autonomiePlein: au.plein, A, reserve: resv, aBord, g0},
+        etapes: (plan || []).map(e => sondeStation(e, {q: e.q, litres: e.litres, plein: e.plein, cout: e.p * lkm * e.q, arrivee: e.arrivee})),
+        depart: depart ? sondeStation(depart) : null,
+        arrivee: pleinArrivee ? sondeStation(pleinArrivee) : null,
+        achats: plan === null ? null : r.coutAchats,
+        voyage: plan === null ? null : voyage,
+        aBordValeur: plan === null || voyage == null ? null : voyage - r.coutAchats,   // carburant a bord au depart, valorise
+        prixMoyen: notrePrix,
+        economie: eco,
+        minutes: plan === null ? null : tempsTotal,
+        largeurs: largeurs.map(o => ({w: o.w, faisable: o.ok, voyage: o.v, achats: o.achats,
+                                      aBordValeur: o.ok ? o.v - o.achats : null, arrets: o.arrets, minutes: o.min})),
+        detours: detours.map(o => ({w: o.w, voyage: o.v, minutes: o.min, arrets: o.arrets, conseille: o === dConseil})),
+        candidats: candTous.map(c => sondeStation(c)),
+        alertes,
+      };
     }
     elPlan.replaceChildren(...heros.filter(Boolean));
+    if(sonde){
+      sonde.trajet = TRAJET ? {dep: TRAJET.dep, arr: TRAJET.arr, km: TRAJET.km, min: TRAJET.min, allerRetour: !!TRAJET.ar,
+                               sansPeage: !!TRAJET.sansP, moteur: MOTEUR, total: KMS[KMS.length - 1]} : null;
+      sonde.messages = [...elPlan.querySelectorAll('.heros-etat, .detours-rien, .lt-alerte')].map(x => x.textContent.trim());
+      sonde.resume = resume;
+      publierPlan(sonde);
+    }
     // Region aria-live : un resume court, mis a jour seulement s'il change (le plan est
     // redessine a chaque deplacement de la carte : pas de repetition au lecteur d'ecran).
     if($('planEtat').textContent !== resume) $('planEtat').textContent = resume;
