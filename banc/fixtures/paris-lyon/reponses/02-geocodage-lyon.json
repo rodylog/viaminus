@@ -1,0 +1,37 @@
+{
+  "url": "data.geopf.fr/geocodage/search/?limit=1&q=Lyon",
+  "statut": 200,
+  "type": "application/json; charset=utf-8",
+  "corps": {
+    "type": "FeatureCollection",
+    "version": "draft",
+    "features": [
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            4.8357,
+            45.764
+          ]
+        },
+        "properties": {
+          "label": "Lyon",
+          "score": 0.97,
+          "id": "69123",
+          "type": "municipality",
+          "name": "Lyon",
+          "postcode": "69123",
+          "citycode": "69123",
+          "city": "Lyon",
+          "context": "",
+          "importance": 0.9
+        }
+      }
+    ],
+    "attribution": "BAN",
+    "licence": "ETALAB-2.0",
+    "query": "Lyon",
+    "limit": 1
+  }
+}

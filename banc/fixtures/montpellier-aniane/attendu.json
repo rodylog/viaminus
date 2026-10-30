@@ -1,0 +1,47 @@
+{
+  "etat": "aucun-arret",
+  "couloir": 10,
+  "trajet": {
+    "dep": "Montpellier",
+    "arr": "Aniane",
+    "km": 26,
+    "moteur": "ign"
+  },
+  "etapes": [],
+  "depart": {
+    "id": "34000001",
+    "ville": "Montpellier",
+    "km": 2,
+    "prix": 0.729,
+    "datePrix": "2026-10-30T05:40:10"
+  },
+  "arrivee": {
+    "id": "34570001",
+    "ville": "Montarnaud",
+    "km": 18,
+    "prix": 0.709,
+    "datePrix": "2026-10-30T05:40:10"
+  },
+  "achats": 0,
+  "voyage": 1.41,
+  "aBordValeur": 1.41,
+  "prixMoyen": 0.729,
+  "economie": {
+    "economie": 0.12,
+    "prix": 0.789
+  },
+  "detours": [
+    {
+      "w": 1,
+      "voyage": 1.41,
+      "minutes": 1,
+      "arrets": 0,
+      "conseille": true
+    }
+  ],
+  "messages": [
+    "Aucun arrêt nécessaire — 26 km pour 520 km utiles : un plein au départ suffit.",
+    "Aucun détour ne ferait gagner d'argent sur ce trajet."
+  ],
+  "alertes": []
+}

@@ -1,0 +1,57 @@
+{
+  "etat": "arrets",
+  "couloir": 10,
+  "trajet": {
+    "dep": "Paris",
+    "arr": "Lyon",
+    "km": 417,
+    "moteur": "ign"
+  },
+  "etapes": [
+    {
+      "id": "21200001",
+      "ville": "Beaune",
+      "km": 240,
+      "prix": 1.619,
+      "datePrix": "2026-10-28T17:03:44",
+      "litres": 7.4,
+      "plein": false,
+      "cout": 11.98
+    }
+  ],
+  "depart": {
+    "id": "75014001",
+    "ville": "Paris",
+    "km": 4,
+    "prix": 1.729,
+    "datePrix": "2026-10-29T06:12:05"
+  },
+  "arrivee": {
+    "id": "69009001",
+    "ville": "Lyon",
+    "km": 410,
+    "prix": 1.699,
+    "datePrix": "2026-10-30T05:40:10"
+  },
+  "achats": 11.98,
+  "voyage": 43.1,
+  "aBordValeur": 31.12,
+  "prixMoyen": 1.697,
+  "economie": {
+    "economie": 0.77,
+    "prix": 1.729
+  },
+  "detours": [
+    {
+      "w": 5,
+      "voyage": 43.1,
+      "minutes": 13,
+      "arrets": 1,
+      "conseille": true
+    }
+  ],
+  "messages": [
+    "Un détour jusqu'à 5 km de la route est nécessaire ; aller plus loin ne ferait rien gagner."
+  ],
+  "alertes": []
+}
