@@ -74,6 +74,24 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   Auchan) reprennent la même déclaration (255 blocs Leclerc sur 298 identiques au flux,
   sondage du 26/10), U et Intermarché citent le flux, Waze et Zagaz sont des saisies
   d'utilisateurs souvent anciennes. Seul le terrain (signalement sur place) fait foi.
+- **Signalements partagés « pompe vide »** (30/10/2026, partie 2 ; la partie 1 est le service,
+  `worker/`) : le flux officiel ne sait pas qu'une pompe
+  est vide, les personnes sur place, si. Dans la fiche station, sous chaque carburant vendu, deux
+  boutons « Pompe vide » et « De nouveau dispo » (44 px) envoient le constat à un service minimal et
+  anonyme (Cloudflare Worker + D1) qui sert l'agrégat par station et carburant sur 48 h. La liste
+  et la fiche portent alors un badge sobre, couleur **et** texte — « E85 signalé vide il y a 2 h (3) »
+  en rouge, « E85 de nouveau dispo il y a 40 min » en vert (`src/signalements.js`, pur, testé) ;
+  le plan de pleins écarte les candidates signalées vides depuis moins de 12 h **avant**
+  `optimiserPlan` (option « Éviter les pompes signalées vides (12 h) », activée d'office) et la
+  carte-héros dit combien et lesquelles ; si plus aucun plan ne passe sans elles, il les garde et le
+  dit (avertissement rouge, alerte sur chaque étape concernée). Lecture par lots de 400
+  identifiants, cache mémoire 60 s, réponses obsolètes abandonnées comme pour le flux, échec réseau
+  silencieux (la fonction s'efface). Un signalement par station et carburant par 6 h (journal local
+  `fuelpilot:signalements`, boutons désactivés avec le délai restant), 429 du service expliqué en
+  clair. **Ce qui est envoyé : l'identifiant de la station, le carburant et l'état — rien d'autre :
+  ni position, ni véhicule, ni identifiant d'appareil, ni cookie.** L'hôte du service est fixé à la
+  génération (`generate.py --signalements-url https://…`) ; sans lui, rien n'est envoyé, rien n'est
+  affiché et aucun hôte n'entre dans la CSP (voir « Signalements partagés » plus bas).
 - **Faire un détour ?** (26/10/2026, remplace le sélecteur de couloir du
   formulaire et les mini-barres) : le plan est refait pour 1, 2, 5, 10 et 20 km
   de la route ; ne restent que les choix utiles (faisables, aucun autre à la fois
@@ -125,7 +143,8 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
 - **Sécurité** : toute chaîne venue de l'extérieur (flux des stations, URL `#veh=`,
   `#trajet=`) est échappée à l'ingestion ou rendue en texte (jamais en HTML) ; Content-Security-Policy calculée à la génération
   (scripts autorisés par empreinte SHA-256, pas d'`unsafe-inline`, `connect-src`
-  borné aux trois API publiques). Rien ne s'exécute côté serveur : un fichier
+  borné aux trois API publiques, `worker-src 'self' blob:` et `manifest-src 'self'` pour le
+  service worker et le manifeste servis à côté). Rien ne s'exécute côté serveur : un fichier
   statique servi en https suffit.
 - **Lisibilité** : vert = le moins cher affiché (ex æquo compris), bleu = dans la
   norme, noir = repères du plan (étapes, départ, arrivée), rouge = les
@@ -176,6 +195,24 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   Type 2, élargir le couloir, réduire la réserve, partir à 100 %, revoir la batterie), jamais
   un écran vide. Il optimise le **temps**, pas l'euro (aucun prix au kWh dans les données
   ouvertes).
+- **Appli installable et hors-ligne** (30/10/2026) : servie en https, la page se propose à
+  l'installation (manifeste `pwa/manifest.webmanifest`, icônes goutte + éclair) et s'ouvre ensuite
+  comme une application, sans barre d'adresse. Un service worker (`pwa/sw.js`, règles dans
+  `src/pwa-strategie.js`) garde la **coquille** (la page, cache nommé d'après l'empreinte de
+  build, l'ancien purgé à l'activation), les **derniers prix vus** (réseau d'abord, repli sur la
+  dernière réponse en cache avec sa date : 50 réponses, 7 jours ; au-delà de 8 s sans réponse
+  du réseau, le cache sert aussi), les **bornes** déjà chargées (`data/irve/*.json`, cache
+  d'abord et rafraîchi en arrière-plan) et les prix espagnols (réseau d'abord, repli cache,
+  même province). Tuiles, style, glyphes, itinéraires et géocodage ne sont **jamais** mis en
+  cache (quota, fraîcheur). Hors ligne : bandeau discret « Hors ligne — prix du <date> », liste
+  et plan de pleins fonctionnent sur ces prix, l'itinéraire dit qu'il demande le réseau et la
+  carte qu'elle peut manquer. **Mise à jour** : quand un nouveau service worker est prêt, le
+  bandeau « Nouvelle version » propose de recharger — jamais de rechargement automatique.
+  Toute erreur du worker laisse la page fonctionner comme avant ; en `file://` rien ne change
+  (le `fuelpilot.html` téléchargé marche sans ces deux fonctions). Aucune donnée personnelle en
+  cache : jamais la position (le géocodage inverse n'est pas intercepté), jamais le garage ; les
+  réponses de prix sont indexées par l'emprise de la carte (un rectangle), pas par le point de
+  l'appareil.
 - **Interface** : la carte est l'écran, tout le reste flotte dessus — pilule de
   recherche, chip véhicule (garage), feuille glissante à trois crans sur mobile,
   panneau gauche de 400 px sur bureau ; fiche station, garage, options et aide
@@ -183,6 +220,14 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   (orthophoto en option), mode sombre automatique ou choisi, transformé côté
   client. « Y aller » ouvre l'application de navigation choisie au premier usage
   (lien `geo:`, Magic Earth, OsmAnd, Google Maps, Waze, OpenStreetMap).
+- **Accessibilité** (audit et corrections du 30/10/2026, cible WCAG 2.2 AA sur les parcours
+  principaux, déclaration dans `docs/accessibilite.md`) : parcours complet au clavier (Tab,
+  flèches dans les groupes de boutons, Échap, lien d'évitement vers la liste), feuilles modales
+  avec fond inerte et retour du focus, focus toujours visible (contour ≥ 3:1 dans les deux
+  thèmes), contrastes AA en clair comme en sombre par les jetons de `:root`, la couleur ne dit
+  jamais seule le prix (coche = la moins chère, flèche = chère), tailles de police en rem (zoom
+  texte 200 % sans perte), cibles tactiles ≥ 44 px, annonces polies (chargement, plan, erreurs),
+  `lang="es"` sur les noms et adresses des stations espagnoles, `prefers-reduced-motion` respecté.
 
 ## Mode d'emploi
 
@@ -219,6 +264,7 @@ Le gabarit vit dans `src/` et `generate.py` l'assemble en un seul fichier :
 | `src/bornes.js` | bornes côté interface : `departementsPourEmprise(index, bbox)`, `classePuissance` (rapide / moyen / lent / inconnu), `libellePuissance`, `libelleHoraires`, `libelleMaj` (donnée ancienne > 365 j), `branchable`, `libellePrises`, `libellePaiement` ; pur, exporté pour Node |
 | `src/partage.js` | format `#veh=` : `vehVersParam` / `paramVersVeh`, format historique et 7ᵉ champ électrique, lien ancien toujours lu ; pur, exporté pour Node |
 | `src/es.js` | Espagne : `nombreES`, `normaliserStationES` (forme d'une station française), `ouvertA` / `resumerHorario` (horaires `L-S: 06:00-22:00; D: …`), `provincesPourEmprise` / `enEspagne` ; pur, exporté pour Node |
+| `src/signalements.js` | signalements partagés « pompe vide » : `libelle` (badge), `aEviter` (seuil 1, fenêtre 12 h, un « ok » plus récent remet à zéro), `peutSignaler` / `delaiRestant` / `noterSignalement` (journal local, 6 h), `lotsIds` (paquets de 400) ; pur, exporté pour Node |
 | `src/es-provincias.json` | les 52 provinces : id → [nom, nb de stations, latMin, latMax, lonMin, lonMax], calculées le 28/10/2026 depuis le fichier complet ; inliné à la génération |
 | `src/fixtures/es-echantillon-girona.json` | réponse réelle `FiltroProvincia/17` tronquée à 3 stations (tests) |
 | `src/fixtures/irve-echantillon-34.csv`, `src/fixtures/irve-34.json` | 12 points de charge réels de l'Hérault (fichier du 28/10/2026) + 1 ligne synthétique (code postal seulement dans l'adresse), et leur sortie par `irve_build.py` : fixture des tests, seule donnée IRVE commitée |
@@ -226,20 +272,58 @@ Le gabarit vit dans `src/` et `generate.py` l'assemble en un seul fichier :
 | `src/ui/feuilles.js` | feuille glissante à trois crans (mobile), feuilles modales, Échap, focus |
 | `src/ui/fond.js` | carte MapLibre : créée sans style, style IGN vectoriel posé une seule fois, transformation sombre, orthophoto, repli raster IGN puis OSM, WebGL absent |
 | `src/ui/assistant.js` | assistant véhicule en trois écrans (`creerAssistant(ctx)`), énergie thermique ou électrique |
-| `src/app.js` | données, rendu (`rendu()` aiguille vers `renduCarburant()` — stations, plan de pleins, inchangé — ou `renduElec()` — bornes, plan de charge), garage, itinéraire (aller-retour), partage, import par l'URL, position, menus, bornes (`chargerBornes`, `renduBornes`, `ouvrirBorne`) |
-| `src/plan.test.js`, `src/conso.test.js`, `src/irve.test.js`, `src/plan-elec.test.js`, `src/bornes.test.js`, `src/partage.test.js`, `src/es.test.js` | tests des modules purs |
+| `src/app.js` | données, rendu (`rendu()` aiguille vers `renduCarburant()` — stations, plan de pleins, inchangé — ou `renduElec()` — bornes, plan de charge), garage, itinéraire (aller-retour), partage, import par l'URL, position, menus, bornes (`chargerBornes`, `renduBornes`, `ouvrirBorne`), enregistrement du service worker et bandeaux hors ligne / nouvelle version |
+| `src/pwa-strategie.js` | règles du service worker à partir de l'URL seule : `decider` (coquille / prix / es / irve / reseau), `nomCacheCoquille`, `cachesAPurger`, `entreesAPurger` (limite, âge), `choisirRepli` (même famille de requête) ; pur, exporté pour Node |
+| `src/sw.js` | corps du service worker (install, activate, fetch, message « activer ») ; `pwa/sw.js` = `pwa-strategie.js` + `sw.js`, assemblé par `generate.py` |
+| `pwa/` | fichiers à servir **à côté de la page** : `manifest.webmanifest`, `icone-192.png`, `icone-512.png`, `icone-maskable-512.png` (générées une fois depuis `icone.svg` / `icone-maskable.svg` par `generer-icones.js`, commitées), `sw.js` |
+| `src/plan.test.js`, `src/conso.test.js`, `src/irve.test.js`, `src/plan-elec.test.js`, `src/bornes.test.js`, `src/partage.test.js`, `src/es.test.js`, `src/signalements.test.js`, `src/pwa-strategie.test.js` | tests des modules purs |
+| `recette/signalements.js`, `recette/captures/` | recette headless des signalements (Playwright, services simulés par `route`) et ses captures |
+| `recette/pwa.js` | recette headless (Playwright) : http local, service worker, deuxième chargement depuis le cache, hors ligne, nouvelle version, `file://` ; captures dans `recette/captures/` |
 | `irve_build.py`, `irve_build_test.py` | Base nationale des IRVE (CSV, 114 Mo) → `data/irve/<dep>.json` + `index.json`, bibliothèque standard seule ; tests `unittest` du département et de l'emprise |
+| `docs/accessibilite.md` | déclaration d'accessibilité : état, méthode, mesures avant / après (axe-core, clavier, performance), limites connues |
+| `outils/accessibilite/` | banc de mesure (hors build) : `axe.cjs`, `clavier.cjs`, `perf.cjs`, données factices `donnees.cjs`, page et états `banc.cjs` ; `npm install` puis `node axe.cjs <page.html> <dossier>` |
 
 Les scripts sont assemblés dans l'ordre de `SCRIPTS` (`generate.py`) en un seul
-`<script>` : `plan.js`, `conso.js`, `irve.js`, `bornes.js`, `partage.js`, `es.js`, `ui/*.js`, puis `app.js`.
+`<script>` : `plan.js`, `conso.js`, `irve.js`, `bornes.js`, `partage.js`, `es.js`, `signalements.js`, `ui/*.js`, puis `app.js`.
 
 ```bash
-node --test src/*.test.js   # modules purs (Node ≥ 20)
+node --test src/*.test.js                        # modules purs (Node ≥ 20)
+node --test src/*.test.js banc/*.test.js         # + banc de non-régression (Chromium headless, sans réseau)
 ```
+
+**Banc de non-régression « 10 trajets »** (`banc/`, 30/10/2026) : le banc manuel du 26/10 rejoué
+en tests automatiques. `banc/enregistre.js` joue un trajet dans la page générée (Chromium headless,
+réseau réel, hors cloud) et enregistre chaque réponse des API dans `banc/fixtures/<slug>/` ;
+`banc/rejeu.test.js` rejoue chaque fixture sans réseau (toute requête servie depuis la fixture, hors
+fixture = échec), lit le plan par le point d'accès de test `window.__viaminus_plan` (publié par
+`rendu()`, inerte pour l'utilisateur) et vérifie des règles métier nommées (station muette de plus
+de 21 jours jamais retenue, plein d'arrivée figé alerté, carburant à bord valorisé une seule fois
+quelle que soit la largeur, message « détour nécessaire » à bon escient, coût = somme des pleins,
+économie non négative, déterminisme, fidélité au plan enregistré). Deux fixtures synthétiques
+(Paris → Lyon, Montpellier → Aniane) rendent le banc exécutable partout ; `node banc/rejeu.js <slug>`
+lit un échec. Seule dépendance npm du dépôt : Playwright, dans `banc/package.json`. Tout est dans
+`banc/README.md`.
 
 Les bornes se chargent par `fetch` d'URL **relatives** (`data/irve/index.json`,
 `data/irve/<dep>.json`), donc sous `connect-src 'self'` : aucun hôte ajouté à la CSP. Déposer
 la sortie d'`irve_build.py` à côté de la page (`<dossier de fuelpilot.html>/data/irve/`).
+
+### Appli installable et hors-ligne (30/10/2026)
+
+`generate.py` écrit aussi `pwa/sw.js` (règles pures + corps du worker, un seul fichier ; le test
+`pwa-strategie.test.js` vérifie qu'il est à jour). Pour que l'installation et le hors-ligne
+fonctionnent, **copier `pwa/manifest.webmanifest`, `pwa/sw.js`, `pwa/icone-192.png`,
+`pwa/icone-512.png` et `pwa/icone-maskable-512.png` à côté de la page** (même dossier que
+`index.html`, servi en https) ; `data/irve/` reste à sa place. Sans ces fichiers, la page marche
+comme avant (le navigateur signale seulement un manifeste absent). La page enregistre
+`sw.js?v=<empreinte de build>&p=<nom de la page>` : chaque build publié est un nouveau worker,
+qui pré-charge la nouvelle page dans son propre cache ; le bandeau « Nouvelle version » apparaît
+quand il est prêt, « Recharger » le fait prendre la main.
+
+```bash
+node pwa/generer-icones.js                      # une fois : PNG depuis les SVG (Playwright)
+python3 generate.py --sans-snapshot --out /tmp/x.html && node recette/pwa.js /tmp/x.html   # recette headless
+```
 
 ### Bornes de recharge (phase 1, 28/10/2026 : données, module pur, plan de charge ; phase 2, 30/10/2026 : interface)
 
@@ -286,10 +370,99 @@ inconnues, 49 662 stations, 13,8 Mo écrits (Hérault : 443 stations, 135 Ko).
 - Le script affiche un rapport : lignes lues, rejets, doublons, PDC, stations, département par
   voie, puissances inconnues, stations exclues des emprises, taille écrite.
 
+### Accessibilité (30/10/2026)
+
+Règles tenues dans le code, à garder lors des prochaines évolutions :
+
+- **Couleurs** : tout passe par les jetons de `:root` (`src/app.css`). Les fonds colorés à texte
+  blanc (`--bleu`, `--rouge`, `--vert`) sont les mêmes dans les deux thèmes ; un texte ou un
+  contour coloré utilise `--txt-bleu`, `--txt-rouge`, `--txt-vert`, `--focus`, éclaircis en mode
+  sombre (un bleu `#0b57d0` posé en texte sur une surface sombre tombe à 2,6:1). Gris des
+  sous-textes `--muted` ≥ 4,9:1 sur toutes ses surfaces ; bordure des champs `--bord-champ` et
+  piste d'interrupteur `--interrupteur` ≥ 3:1.
+- **La couleur ne dit jamais seule le prix** : `marqueHtml()` / `marquerPrix()` (`src/app.js`)
+  posent la coche (la moins chère) ou la flèche (chère) et un texte caché ; toute nouvelle
+  pastille de prix passe par là.
+- **Feuilles** : `ouvrirFeuille()` rend le reste de la page `inert` et `fermerFeuille()` rend le
+  focus à l'ouvreur ; un nouvel élément de premier niveau dans `#app` doit être ajouté à `FOND`
+  (`src/ui/feuilles.js`). Un bouton qui ouvre une feuille porte `aria-haspopup="dialog"`.
+- **Re-rendu** : `rendu()` garde le focus (par `data-id`, sinon classe et rang) ; les cartes de
+  la liste portent `data-id`.
+- **Clavier** : les boutons d'un `role="group"` ou `role="toolbar"` se parcourent aux flèches ;
+  un bouton-icône porte un `aria-label` ; régions live en `polite` seulement (jamais `assertive`,
+  sauf perte de données).
+- **Tailles de police en rem** (16 px = 1 rem) : ne pas réintroduire de `font-size` en px ;
+  hauteurs en `min-height` plutôt qu'en `height` pour que le zoom texte étire sans couper.
+- **Cibles tactiles ≥ 44 px** (règle `@media (pointer:coarse)`), y compris les marqueurs de la carte.
+
+Mesure (hors build, npm seulement ici) : `cd outils/accessibilite && npm install`, puis
+`./generate.py --sans-snapshot --out /tmp/page.html` et `node axe.cjs /tmp/page.html sortie`
+(axe-core 4.10 sur 12 états × 375 / 1280 px × clair / sombre), `node clavier.cjs …` (parcours Tab,
+pièges, retour du focus, contraste du contour, cibles < 44 px, reflow 320 px, zoom texte 200 %,
+captures), `node perf.cjs …` (temps jusqu'au premier rendu de la liste, moyenne de 5 chargements,
+latence réseau 0 et 150 ms). Les données sont factices (dix stations Paris → Lyon, trois bornes,
+un véhicule thermique et un électrique), servies par interception réseau : rien ne sort de la machine.
+Playwright est celui du poste (`npx playwright install chromium` au premier usage).
+
 La CSP est recalculée à chaque génération à partir des scripts réellement inline
 (bibliothèque + application) ; un nouvel hôte réseau doit être ajouté à
 `connect-src` / `img-src` dans `csp_meta()`. MapLibre charge tuiles, glyphes et
 sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
+
+## Signalements partagés
+
+Un service minimal, anonyme, hébergé sur Cloudflare (Worker + base D1) reçoit les signalements
+« pompe vide » / « de nouveau dispo » des personnes sur place et sert l'agrégat par station et
+carburant sur 48 h — la seule vraie source, puisque aucun flux automatique ne détecte une pompe
+vide (constat du 26/10/2026). Partie 1 (le service : code, routes, tests, déploiement, politique
+de confidentialité) : `worker/README.md`. Partie 2
+(cette page : boutons, badges, plan) : `src/signalements.js`, `src/app.js`.
+
+**Contrat utilisé** : `POST {BASE}/v1/signalement` corps `{"station":"12345678","carburant":"e85","etat":"vide"|"ok"}`
+→ 201 et l'agrégat de la station, 400, 429 (5 par heure, 1 par station et carburant par 6 h) ;
+`GET {BASE}/v1/etat?ids=12345678,ES-2777,…` (400 identifiants au plus) → `{"12345678":{"e85":{"vide":2,"ok":0,"dernier":1730280000}}}`
+sur 48 h, `dernier` en secondes UTC, stations sans signalement absentes, cache HTTP 60 s. CORS
+limité à `https://rodylog.github.io` (et `http://localhost` en développement) : la page doit être
+servie depuis cette origine. Identifiants = `id` des stations françaises (8 chiffres) et
+`ES-<IDEESS>` ; les bornes de recharge n'ont pas de signalement (le service ne les connaît pas, le
+plan de charge n'est pas concerné).
+
+**Génération** : l'hôte du service est fixé à la génération, jamais dans le code :
+
+```bash
+./generate.py --signalements-url https://viaminus-signalements.<compte>.workers.dev
+```
+
+Format attendu : `https://hôte[/chemin]`, sans `?` ni `#`, barre finale facultative (retirée) ; la
+page appelle alors `<url>/v1/etat` et `<url>/v1/signalement`, et l'origine (`https://hôte`) entre
+dans `connect-src`. Sans l'option, le jeton `__SIGNALEMENTS_URL__` est vide : aucune requête, aucun
+bouton, aucun badge, l'option du plan est cachée et aucun hôte n'est ajouté à la CSP (vérifié par la
+recette : compteur de requêtes à zéro).
+
+**Anonymat** : l'application n'envoie que l'identifiant de la station, le carburant et l'état —
+jamais la position, jamais le garage, jamais d'identifiant d'appareil ; le service ne pose aucun
+cookie (voir `worker/README.md`, « Confidentialité, en cinq lignes »). Le journal local
+`fuelpilot:signalements` (station|carburant → date) ne quitte pas l'appareil.
+
+**Règles côté page** : badge dès un signalement (un « vide » prime sur un « dispo ») ; évitement
+dans le plan = au moins 1 signalement « vide » de moins de 12 h et aucun « ok » plus récent (le
+service remet `vide` à zéro) ; le plan se calcule sur les candidates restantes, et si plus aucun
+plan ne passe sans elles (au détour courant) il les garde et le dit. « Pompe vide » pose aussi la
+correction locale (station grisée pour vous, comme « Corriger → Pompe vide ») ; « De nouveau
+dispo » la retire. En cas d'échec du partage (429, panne), le constat reste gardé sur l'appareil et
+le message le dit.
+
+```bash
+node --test src/*.test.js                       # dont src/signalements.test.js
+python3 generate.py --sans-snapshot --out /tmp/sans.html
+python3 generate.py --sans-snapshot --signalements-url https://signalements.test --out /tmp/avec.html
+node recette/signalements.js /tmp/sans.html /tmp/avec.html recette/captures   # Playwright + Chromium
+```
+
+La recette simule tout par `route` (flux des prix, géocodage, itinéraire, service) : URL non
+configurée → aucune requête ; badges ; fiche (deux boutons par carburant ≥ 44 px, corps exact du
+POST, confirmation, délai de 6 h, 429) ; plan (candidate évitée avant `optimiserPlan`, carte-héros,
+option, évitement levé). Captures dans `recette/captures/`. Le service réel n'est pas appelé.
 
 ## Sources et licences
 
@@ -321,13 +494,27 @@ sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
   l'équateur ; ces stations sont ignorées à l'ingestion (coordonnée à 0 ou hors de l'enveloppe
   latitude 27–44, longitude −19–5) et comptées (« n sans position ignorées »). Le snapshot de
   repli embarqué reste français.
+- Signalements partagés : des constats humains, sans vérification (un signalement vaut un avis,
+  pas une mesure) ; 48 h de mémoire côté service, 12 h d'évitement dans le plan ; disponibles
+  seulement si la page a été générée avec `--signalements-url` et servie depuis l'origine autorisée
+  par le service (CORS) ; stations seulement, jamais les bornes de recharge.
 - `file://` : Firefox y refuse la géolocalisation et cloisonne le stockage par
-  fichier — héberger en https règle les deux.
+  fichier — héberger en https règle les deux ; ni installation ni hors-ligne depuis un fichier
+  (service worker impossible), la page marche comme avant.
+- Hors ligne (page installée ou déjà ouverte en https) : les derniers prix vus et les bornes
+  déjà chargées, avec leur date ; pas de fond de carte, pas d'itinéraire, pas de géocodage
+  (jamais mis en cache). Prix gardés 7 jours (50 réponses), bornes 60 jours (40 fichiers).
+  Quota de stockage réel et installation sur un vrai Android non vérifiés ici.
 - 400 éléments affichés par zone au maximum, stations et bornes confondues (annoncé à
   l'écran quand ça tronque) ; bornes : 4 départements à la fois au plus en vue libre.
 - Bornes de recharge : données **statiques** (pas de disponibilité en temps réel, pas de prix
-  au kWh), indisponibles en `file://` et hors ligne (fichiers servis à côté de la page) ; les
+  au kWh), indisponibles en `file://` (fichiers servis à côté de la page) et, hors ligne, seuls
+  les départements déjà chargés restent disponibles ; les
   consommations électriques pré-remplies sont des ordres de grandeur, pas des médianes mesurées.
+- Accessibilité : la carte (canvas WebGL) n'est pas lisible au lecteur d'écran et ses marqueurs
+  ne sont pas dans l'ordre de tabulation — la liste porte toute l'information ; vérifié avec
+  axe-core et un parcours clavier automatisé dans Chromium, **pas encore avec de vrais lecteurs
+  d'écran** (TalkBack, NVDA, VoiceOver) ni sur une vraie carte IGN (voir `docs/accessibilite.md`).
 - Plan de charge électrique : il optimise le **temps de charge**, pas l'euro (pas de prix au
   kWh dans les données ouvertes) — pas de « Faire un détour pour payer moins ? » pour
   l'électrique, le couloir se règle à la main ; courbe de charge simplifiée en deux paliers (puissance

@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "date": "2026-10-30T10:00:00.000Z",
+  "origine": "synthetique",
+  "note": "Fixture fabriquée à la main (aucune API interrogée) : géocodage, itinéraire et flux des prix au format réel, champs minimaux ; dates relatives à `date`. Voir LISEZMOI.md.",
+  "scenario": {
+    "slug": "paris-lyon",
+    "depart": "Paris",
+    "arrivee": "Lyon",
+    "couloir": 10,
+    "veh": {
+      "nom": "Banc E10",
+      "carbs": [
+        "e10"
+      ],
+      "conso": 6,
+      "cuve": 30,
+      "reserve": 30,
+      "autonomie": 330
+    }
+  },
+  "url": "#trajet=Paris|Lyon|10|&veh=Banc%20E10|e10|6|30|30|330",
+  "page": {
+    "commit": null,
+    "navigateur": null
+  },
+  "reponses": [
+    {
+      "url": "data.geopf.fr/geocodage/search/?limit=1&q=Paris",
+      "fichier": "reponses/01-geocodage-paris.json",
+      "statut": 200,
+      "type": "application/json; charset=utf-8",
+      "sha256": "a0623da5415d72e1f9dee660a6246991335fe47cd73708e4a2604d3647bf9cbd"
+    },
+    {
+      "url": "data.geopf.fr/geocodage/search/?limit=1&q=Lyon",
+      "fichier": "reponses/02-geocodage-lyon.json",
+      "statut": 200,
+      "type": "application/json; charset=utf-8",
+      "sha256": "c717a83c09ab106ab7de1f9937dac468738816d3ecad16fdbdac0db98822a74c"
+    },
+    {
+      "url": "data.geopf.fr/navigation/itineraire?end=4.8357,45.764&geometryFormat=geojson&optimization=fastest&profile=car&resource=bdtopo-osrm&start=2.3522,48.8566",
+      "fichier": "reponses/03-itineraire-ign.json",
+      "statut": 200,
+      "type": "application/json",
+      "sha256": "17b366a74a6f99181061fb2ccb4a5d2d073babbc82e6d0c177229171a5a1f349"
+    },
+    {
+      "emule": "flux-prix",
+      "fichier": "stations.json"
+    }
+  ],
+  "empreinte": "c94c41d124ac0765759b563e993b1c32ece1ccd02d3b6861693039810732fa64"
+}

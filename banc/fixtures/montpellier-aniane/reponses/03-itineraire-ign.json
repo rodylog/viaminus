@@ -1,0 +1,94 @@
+{
+  "url": "data.geopf.fr/navigation/itineraire?end=3.5878,43.6847&geometryFormat=geojson&optimization=fastest&profile=car&resource=bdtopo-osrm&start=3.8767,43.6108",
+  "statut": 200,
+  "type": "application/json",
+  "corps": {
+    "resource": "bdtopo-osrm",
+    "resourceVersion": "synthetique",
+    "start": "3.8767,43.6108",
+    "end": "3.5878,43.6847",
+    "profile": "car",
+    "optimization": "fastest",
+    "geometry": {
+      "type": "LineString",
+      "coordinates": [
+        [
+          3.8767,
+          43.6108
+        ],
+        [
+          3.8578,
+          43.6072
+        ],
+        [
+          3.8389,
+          43.6036
+        ],
+        [
+          3.82,
+          43.6
+        ],
+        [
+          3.8,
+          43.61
+        ],
+        [
+          3.78,
+          43.62
+        ],
+        [
+          3.76,
+          43.63
+        ],
+        [
+          3.74,
+          43.64
+        ],
+        [
+          3.72,
+          43.645
+        ],
+        [
+          3.7,
+          43.65
+        ],
+        [
+          3.68,
+          43.655
+        ],
+        [
+          3.66,
+          43.66
+        ],
+        [
+          3.64195,
+          43.66617
+        ],
+        [
+          3.6239,
+          43.67235
+        ],
+        [
+          3.60585,
+          43.67853
+        ],
+        [
+          3.5878,
+          43.6847
+        ]
+      ]
+    },
+    "crs": "EPSG:4326",
+    "distanceUnit": "meter",
+    "timeUnit": "second",
+    "bbox": [
+      3.5878,
+      43.6,
+      3.8767,
+      43.6847
+    ],
+    "distance": 25779,
+    "duration": 977,
+    "portions": []
+  }
+}

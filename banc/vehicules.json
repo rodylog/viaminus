@@ -1,0 +1,9 @@
+{
+  "_note": "Fiches véhicule de travail pour le banc (format du garage : nom, carburants cochés, conso L/100, réservoir L, réserve km, autonomie d'un plein km). Valeurs plausibles, sans source : à ajuster par le mainteneur ; une fixture enregistrée garde sa propre fiche dans meta.json.",
+  "polo-e85": {"nom": "Polo E85", "carbs": ["e85"], "conso": 7.5, "cuve": 45, "reserve": 30, "autonomie": 550},
+  "honda": {"nom": "Honda", "carbs": ["e10"], "conso": 6.5, "cuve": 40, "reserve": 30, "autonomie": 600},
+  "e10": {"nom": "E10", "carbs": ["e10"], "conso": 6.0, "cuve": 42, "reserve": 30, "autonomie": 650},
+  "spmin": {"nom": "SP le moins cher", "carbs": ["spmin"], "conso": 6.5, "cuve": 45, "reserve": 30, "autonomie": 650},
+  "gazole": {"nom": "Gazole", "carbs": ["gazole"], "conso": 5.5, "cuve": 50, "reserve": 40, "autonomie": 850},
+  "gplc": {"nom": "GPLc", "carbs": ["gplc"], "conso": 9.0, "cuve": 40, "reserve": 30, "autonomie": 400}
+}

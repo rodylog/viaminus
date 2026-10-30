@@ -184,24 +184,38 @@ if(!CENTRE) CENTRE = [46.603, 2.334];
 
 // ---------- Carte (MapLibre GL, fond IGN) ----------
 // Sans WebGL : message sur fond neutre, le reste (liste, garage, plan) fonctionne.
-const CARTE = creerCarte({centre: CENTRE, zoom: ZOOM0, sombre: sombreEffectif(), fond: REGL.fond});
-const map = CARTE ? CARTE.map : null;
-if(!CARTE){
-  $('map').hidden = true;
-  $('sansWebgl').hidden = false;
-}
+// Creation DIFFEREE (audit du 30/10/2026) : le constructeur MapLibre (~30 ms) s'executait avant
+// le premier appel au flux des prix, qu'il retardait d'autant ; initialiserCarte() est appelee a
+// la frame suivant le lancement du premier chargement (voir en bas), pendant que la requete est
+// en vol. L'emprise de ce premier appel est calculee sans la carte (emprise(), Mercator) : memes
+// bornes que celles que MapLibre donnera, donc pas de second appel. Tout ce qui touche la carte
+// est garde par `if(CARTE)` / `if(map)` : c'est deja le cas pour le chemin sans WebGL.
+let CARTE = null, map = null, repere = null;
 // Repere (pastille bleue) : les distances partent d'ici.
 const elRepere = document.createElement('div');
 elRepere.className = 'repere';
 elRepere.title = 'Point de repère — les distances partent d\'ici';
-const repere = CARTE ? CARTE.marqueur(CENTRE[0], CENTRE[1], elRepere) : null;
 // Trace du trajet (couche GeoJSON, remise apres chaque changement de style).
 const TRACE_VIDE = {type: 'FeatureCollection', features: []};
-// Aller-retour : le retour est un second trait, decale de quelques pixels pour se lire.
-if(CARTE) CARTE.couche('fh-trace', {type: 'geojson', data: TRACE_VIDE},
-  {type: 'line', layout: {'line-cap': 'round', 'line-join': 'round'},
-   paint: {'line-color': '#1d4ed8', 'line-width': 5, 'line-opacity': 0.45,
-           'line-offset': ['case', ['==', ['get', 'sens'], 'retour'], 6, 0]}});
+let TRACE = TRACE_VIDE;   // dernier trace pose (repris si la carte nait apres le calcul du trajet)
+function initialiserCarte(){
+  if(CARTE || $('sansWebgl').hidden === false) return;
+  CARTE = creerCarte({centre: CENTRE, zoom: ZOOM0, sombre: sombreEffectif(), fond: REGL.fond});
+  map = CARTE ? CARTE.map : null;
+  if(!CARTE){
+    $('map').hidden = true;
+    $('sansWebgl').hidden = false;
+    return;
+  }
+  repere = CARTE.marqueur(CENTRE[0], CENTRE[1], elRepere);
+  // Aller-retour : le retour est un second trait, decale de quelques pixels pour se lire.
+  CARTE.couche('fh-trace', {type: 'geojson', data: TRACE},
+    {type: 'line', layout: {'line-cap': 'round', 'line-join': 'round'},
+     paint: {'line-color': '#1d4ed8', 'line-width': 5, 'line-opacity': 0.45,
+             'line-offset': ['case', ['==', ['get', 'sens'], 'retour'], 6, 0]}});
+  brancherCarte();          // evenements (deplacement, appui long, clic droit), definis plus bas
+  if(DATA.length || BORNES.length) rendu();   // un rendu a deja eu lieu sans carte : poser ses marqueurs
+}
 
 let MARQUEURS = [];   // marqueurs HTML des stations et reperes du plan, refaits a chaque rendu
 let DATA = [], sortKey = 'prix', sortAsc = true;
@@ -222,13 +236,30 @@ const dist = (la,lo) => {
 // (feuille non chargee, style calcule vide).
 const jeton = (nom, repli) =>
   getComputedStyle(document.documentElement).getPropertyValue(nom).trim() || repli;
-const VERT = jeton('--vert', '#158a3f'), BLEU = jeton('--bleu', '#0b57d0'),
+const VERT = jeton('--vert', '#137a37'), BLEU = jeton('--bleu', '#0b57d0'),
       ROUGE = jeton('--rouge', '#c02626');
 function couleur(p, b, mini){
   if(mini != null && p <= mini + 1e-9) return VERT;    // le moins cher, ex aequo compris
   if(b && p > b.p90) return ROUGE;                     // 10 % les plus chers du secteur
   return BLEU;                                         // dans la norme
 }
+// La couleur ne porte jamais seule l'information (WCAG 1.4.1, audit du 30/10/2026) : la moins
+// chere porte une coche, la chere une fleche vers le haut, avec un texte pour les lecteurs
+// d'ecran ; la legende reprend les memes signes. marqueHtml() pour les gabarits innerHTML,
+// marquerPrix() pour les pastilles construites en DOM (recolorees apres le filtre du plan).
+function marqueHtml(c){
+  if(c === VERT) return ico('coche', 'marque') + '<span class="visuellement-cache marque-sr">la moins chère, </span>';
+  if(c === ROUGE) return ico('haut', 'marque') + '<span class="visuellement-cache marque-sr">chère, </span>';
+  return '';
+}
+function marquerPrix(sp, c){
+  sp.style.background = c;
+  sp.querySelectorAll('.marque, .marque-sr').forEach(x => x.remove());
+  const h = marqueHtml(c);
+  if(h){ const t = document.createElement('template'); t.innerHTML = h; sp.prepend(...t.content.childNodes); }
+}
+// Noms et adresses des stations espagnoles : lang="es" pour la synthese vocale (le reste de la page est en francais).
+const langES = (s, t) => s.pays ? `<span lang="es">${t}</span>` : t;
 
 // Referentiel de couleur : les bornes viennent du SECTEUR (60 km autour du
 // point de repere), pas de la zone affichee. Sans cela, la moins chere d'un ecran de
@@ -404,7 +435,16 @@ const sansCherLbl = () => $('sansCher').checked
 // que si elle est finie et non degeneree ; sinon on interroge autour du repere, et la
 // carte relance un chargement des qu'elle recoit sa taille (evenement resize).
 let empriseProvisoire = false;
+// Memo le temps d'une passe synchrone (un rendu appelle emprise() trois ou quatre fois ; chaque
+// appel force une mise en page) ; vide a la microtache suivante, donc jamais perime apres un await.
+let EMPRISE_MEMO = null;
 function emprise(){
+  if(EMPRISE_MEMO) return EMPRISE_MEMO;
+  const e = empriseCalculee();
+  EMPRISE_MEMO = e; queueMicrotask(() => { EMPRISE_MEMO = null; });
+  return e;
+}
+function empriseCalculee(){
   if(map){
     const c = map.getContainer();
     if(c.clientWidth > 0 && c.clientHeight > 0){
@@ -415,6 +455,15 @@ function emprise(){
         return {s: Math.max(-85, s), n: Math.min(85, n), w: Math.max(-180, w), e: Math.min(180, e)};
       }
     }
+  }else if($('map').clientWidth > 0 && $('map').clientHeight > 0 && $('sansWebgl').hidden){
+    // Carte pas encore creee (premier chargement) : bornes Mercator du conteneur deja mis en page,
+    // au centre et au zoom initiaux — ce que MapLibre affichera a la frame suivante.
+    const w = $('map').clientWidth, h = $('map').clientHeight, monde = 512 * 2 ** ZOOM0, r = Math.PI / 180;
+    const x = (CENTRE[1] + 180) / 360 * monde;
+    const y = (1 - Math.log(Math.tan(CENTRE[0] * r) + 1 / Math.cos(CENTRE[0] * r)) / Math.PI) / 2 * monde;
+    const lon = px => px / monde * 360 - 180, lat = py => Math.atan(Math.sinh(Math.PI * (1 - 2 * py / monde))) / r;
+    empriseProvisoire = false;
+    return {s: Math.max(-85, lat(y + h / 2)), n: Math.min(85, lat(y - h / 2)), w: Math.max(-180, lon(x - w / 2)), e: Math.min(180, lon(x + w / 2))};
   }
   empriseProvisoire = true;
   if(ZOOM0 < 10) return {s: 41.2, n: 51.3, w: -5.5, e: 9.8};     // France entiere
@@ -422,6 +471,14 @@ function emprise(){
   return {s: CENTRE[0] - dLat, n: CENTRE[0] + dLat, w: CENTRE[1] - dLon, e: CENTRE[1] + dLon};
 }
 const dansEmprise = (b, la, lo) => la >= b.s && la <= b.n && lo >= b.w && lo <= b.e;
+
+// Point d'acces de test (banc/) : dernier plan calcule par rendu(), en donnees, dans
+// window.__viaminus_plan, et le meme objet dans l'evenement viaminus:plan. Inerte pour
+// l'utilisateur : rien d'affiche, aucune requete, aucune donnee personnelle.
+function publierPlan(p){
+  try{ window.__viaminus_plan = p; window.dispatchEvent(new CustomEvent('viaminus:plan', {detail: p})); }
+  catch(e){ /* sans effet */ }
+}
 
 // ---------- Rendu : marqueurs, liste en cartes, bloc plan ----------
 // renduCarburant() : le rendu historique (stations, plan de pleins), INCHANGE par la phase 2 ;
@@ -516,13 +573,14 @@ function renduCarburant(){
   const dessinerMarqueurs = (liste, mn) => { if(!CARTE) return;
     [...liste].sort((a,b) => b.v.p - a.v.p).forEach(o => {
       const {s,v} = o;
-      const chips = v.lignes.map((l,j) =>
-        `<span style="background:${couleur(l.prix, refs[j], mn[j])}">${l.tag} ${l.prix.toFixed(3)}</span>`).join('');
+      const chips = v.lignes.map((l,j) => { const c = couleur(l.prix, refs[j], mn[j]);
+        return `<span style="background:${c}">${marqueHtml(c)}${l.tag} ${l.prix.toFixed(3)}</span>`; }).join('');
+      const c0 = couleur(v.lignes[0].prix, refs[0], mn[0]);
       const html = multi
         ? `<div class="lbl lbl2">${chips}</div>`
-        : `<div class="lbl" style="background:${couleur(v.lignes[0].prix, refs[0], mn[0])};`+
-          `border-color:#555;color:#fff">${v.lignes[0].prix.toFixed(3)}`+
-          (sel[0]==='spmin' ? ` <span style="font-size:10px;opacity:.85">${v.lignes[0].tag}</span>` : '')+
+        : `<div class="lbl" style="background:${c0};`+
+          `border-color:#555;color:#fff">${marqueHtml(c0)}${v.lignes[0].prix.toFixed(3)}`+
+          (sel[0]==='spmin' ? ` <span style="font-size:.625rem;opacity:.85">${v.lignes[0].tag}</span>` : '')+
           `</div>`;
       const el = document.createElement('button');
       el.type = 'button'; el.className = 'marqueur'; el.tabIndex = -1;
@@ -593,6 +651,7 @@ function renduCarburant(){
     const ouvrirGarage = champ => { appliquerVeh(); ouvrirFeuille('garage', $('chipVeh')); if(champ) $(champ).focus(); };
     const heros = [];
     let resume = '';
+    let sonde = null;   // point d'acces de test (banc/) : le plan en donnees, publie apres le rendu
 
     if(!(conso > 0) || !au){
       // Etat : conso ou autonomie manquante.
@@ -602,6 +661,7 @@ function renduCarburant(){
           bouton('btn primaire', 'Compléter le véhicule', () => ouvrirGarage(!(conso > 0) ? 'conso' : 'autonomie'), 'garage'),
           bouton('btn', 'Assistant', () => ASSISTANT.ouvrir(REGL.vehicules[REGL.vehActif]), 'estimer'))));
       resume = 'Plan de pleins : véhicule à compléter.';
+      sonde = {etat: 'vehicule-incomplet'};
     }else{
       const A = au.A;
       // A bord au depart (km, facultatif, Eric 24/10/2026) : vide = on part le plein fait ;
@@ -615,22 +675,40 @@ function renduCarburant(){
       const lkm = conso / 100;
       const carbPlan = sel[0];               // le plan se calcule sur le 1er carburant coche
       // Candidats le long de la boucle : une occurrence par position (aller, retour).
-      const candTous = [];
+      const candComplet = [];
       DATA.forEach(x => {
         if(!x.occ || !x.occ.length) return;
         const v = pick(x, sel);
         if(!v) return;
         const fige = prixFige(x, v.lignes.map(l => l.ref));
-        x.occ.forEach(o => candTous.push({s: x, v, km: o.km, e: o.d, p: v.lignes[0].prix, fige, risque: fige ? RISQUE_FIGE : 0}));
+        x.occ.forEach(o => candComplet.push({s: x, v, km: o.km, e: o.d, p: v.lignes[0].prix, fige, risque: fige ? RISQUE_FIGE : 0}));
       });
-      candTous.sort((a,b) => a.km - b.km);
-      const cand = candTous.filter(c => c.e <= larg);
+      candComplet.sort((a,b) => a.km - b.km);
       // Carburant deja a bord (« Réservoir au départ ») : compte au prix du depart, le MEME pour
       // toutes les largeurs — sinon les choix de detour se comparaient sur des bases differentes
       // (banc du 26/10/2026, Lodeve > Orleans : « 20 km » gagnait sur ce seul artefact).
-      const pdBord = aBord == null ? undefined
-        : (prixBout(candTous, c => c.km <= 15 && !c.risque) ?? prixBout(candTous, c => c.km <= 15) ?? undefined);
-      const optsPlan = pdBord != null ? {g0, pd: pdBord} : {g0};
+      const optsDe = cw => {
+        const pd = aBord == null ? undefined
+          : (prixBout(cw, c => c.km <= 15 && !c.risque) ?? prixBout(cw, c => c.km <= 15) ?? undefined);
+        return pd != null ? {g0, pd} : {g0};
+      };
+      // Pompes signalees vides par d'autres utilisateurs (signalements partages, option « Éviter les
+      // pompes signalées vides », 12 h) : retirees des candidates AVANT optimiserPlan — plan.js
+      // inchange. Si, sans elles, aucun plan ne passe avec ce detour alors qu'avec elles si, le plan
+      // se recalcule avec elles et le dit (evitementLeve) ; infaisable des deux cotes : l'ecran
+      // « infaisable » habituel, calcule sans elles.
+      const tSig = Date.now();
+      const sigVide = c => c.v.lignes.some(l => aEviter(sigEtat(c.s), l.ref, tSig));
+      const evitees = eviterVidesActif() ? candComplet.filter(sigVide) : [];
+      let candTous = candComplet, evitementLeve = false;
+      if(evitees.length){
+        const sans = candComplet.filter(c => !sigVide(c));
+        const sansPlan = optimiserPlan(sans.filter(c => c.e <= larg), A, total, lkm, optsDe(sans)).plan;
+        if(sansPlan === null && optimiserPlan(candComplet.filter(c => c.e <= larg), A, total, lkm, optsDe(candComplet)).plan !== null) evitementLeve = true;
+        else candTous = sans;
+      }
+      const cand = candTous.filter(c => c.e <= larg);
+      const optsPlan = optsDe(candTous);
       const r = optimiserPlan(cand, A, total, lkm, Object.assign({utiles: true}, optsPlan));
       const plan = r.plan;
       utilesPlan = r.utiles || null;
@@ -659,13 +737,17 @@ function renduCarburant(){
         return (2 * Math.min(...pres.filter(c => c.p <= pmin + 1e-9).map(c => c.e))) / 50 * 60;
       };
       let etroitFaisable = false;     // un choix plus proche de la route existe-t-il (domine) ?
-      let detours = [1, 2, 5, 10, 20].map(w => {
+      // Toutes les largeurs calculees sont gardees (largeurs) pour le point d'acces de test ;
+      // detours ne retient que les faisables, puis les utiles.
+      const largeurs = [1, 2, 5, 10, 20].map(w => {
         const cw = candTous.filter(c => c.e <= w);
         const rw = optimiserPlan(cw, A, total, lkm, optsPlan);
         const v = coutVoyage(cw, rw, total, lkm);
-        return rw.plan == null || v == null ? null
-          : {w, v, min: rw.plan.reduce((t, e) => t + minutes(e), 0) + detourDepart(cw), arrets: rw.plan.length};
-      }).filter(Boolean);
+        const ok = rw.plan != null && v != null;
+        return {w, ok, v: ok ? v : null, achats: ok ? rw.coutAchats : null, arrets: ok ? rw.plan.length : null,
+                min: ok ? rw.plan.reduce((t, e) => t + minutes(e), 0) + detourDepart(cw) : null};
+      });
+      let detours = largeurs.filter(o => o.ok).map(o => ({w: o.w, v: o.v, min: o.min, arrets: o.arrets}));
       const wFaisables = detours.map(o => o.w);
       detours = detours.filter((o, i) => !detours.some((p, j) => j !== i &&
         p.v <= o.v + 0.05 && p.min <= o.min + 0.5 && (p.v < o.v - 0.05 || p.min < o.min - 0.5 || j < i)));
@@ -722,7 +804,7 @@ function renduCarburant(){
       const mnCand = sel.map((k, j) => Math.min(...cand.map(c => c.v.lignes[j].prix)));
       const chipPrix = c => c.v.lignes.map((l, j) => {
         const sp = el('span', 'prix', `${l.tag} ${litre(l.prix)}`);
-        sp.style.background = couleur(l.prix, refs[j], mnCand[j]);
+        marquerPrix(sp, couleur(l.prix, refs[j], mnCand[j]));
         chipsPrix.push([sp, l.prix, j]);
         return sp;
       });
@@ -756,9 +838,31 @@ function renduCarburant(){
         const j = (Date.now() - new Date(m)) / 864e5;
         return j >= 1 ? el('span', 'lt-date' + (j >= 4 ? ' vieux' : ''), ` · prix du ${jour(m)}`) : null;
       };
-      const alerteFige = c => !c.fige ? null : el('span', 'lt-alerte', svg('alerte'), c.fige.muette
-        ? ` station muette : aucun prix déclaré depuis le ${jour(c.fige.date)}, peut-être fermée — à vérifier avant d'y aller`
-        : ` prix figé depuis le ${jour(c.fige.date)} alors que la station déclare ses autres carburants : à vérifier avant d'y aller`);
+      const alertes = [];   // alertes « prix figé » / « station muette » affichees {ou, id, texte} (point d'acces de test)
+      const alerteFige = (c, ou) => {
+        if(!c.fige) return null;
+        const texte = c.fige.muette
+          ? `station muette : aucun prix déclaré depuis le ${jour(c.fige.date)}, peut-être fermée — à vérifier avant d'y aller`
+          : `prix figé depuis le ${jour(c.fige.date)} alors que la station déclare ses autres carburants : à vérifier avant d'y aller`;
+        alertes.push({ou, id: brut(c.s.id), texte});
+        return el('span', 'lt-alerte', svg('alerte'), ' ' + texte);
+      };
+      // Pompe signalee vide par d'autres utilisateurs sur une etape du plan (evitement leve, option
+      // coupee, ou signalement de plus de 12 h) : dit en toutes lettres, jamais par la couleur seule.
+      const alerteSig = c => {
+        const a = c.v.lignes.map(l => sigDe(c.s, l.ref)).find(x => x && +x.vide >= 1);
+        return !a ? null : el('span', 'lt-alerte', svg('alerte'), ` ${libelle(a, tSig)} par d'autres utilisateurs — vérifiez avant d'y aller`);
+      };
+      // Candidates ecartees du plan et pourquoi (carte-heros) ; evitement leve : avertissement.
+      const noteEvitees = () => {
+        if(!evitees.length) return null;
+        const noms = [...new Set(evitees.map(c => nomVille(c.s)))], n = noms.length;
+        const liste = noms.slice(0, 3).join(', ') + (n > 3 ? ` et ${n - 3} autre${n > 4 ? 's' : ''}` : '');
+        if(evitementLeve) return el('p', 'heros-note ko', svg('alerte'),
+          ` ${n} station${n > 1 ? 's' : ''} signalée${n > 1 ? 's' : ''} vide${n > 1 ? 's' : ''} par d'autres utilisateurs (${liste}) : sans elle${n > 1 ? 's' : ''}, aucun plan ne passe avec ce détour — le plan ${n > 1 ? 'les' : 'la'} garde, vérifiez avant d'y aller.`);
+        return el('p', 'heros-note', svg('info'),
+          ` ${n} station${n > 1 ? 's' : ''} écartée${n > 1 ? 's' : ''} du plan : pompe signalée vide par d'autres utilisateurs il y a moins de ${SIG_FENETRE_H} h (${liste}) — option « Éviter les pompes signalées vides ».`);
+      };
       const repli = (c, portee) => {
         let best = null;
         candTous.forEach(x => {
@@ -791,7 +895,7 @@ function renduCarburant(){
         ol.append(item('lt-depart', {plein: true, txt: ''}, aBord != null ? `Départ · réservoir ≈ ${Math.round(aBord)} km${aBordL ? ` (${aBordBrut} L)` : ''}` : 'Départ · plein',
           aBord != null ? [] :
           depart ? [[nomVille(depart.s), ' · km ', String(Math.round(depart.km)), ' · ', ...chipPrix(depart), datePrix(depart)],
-                    alerteFige(depart), secours(depart, 30)]
+                    alerteFige(depart, 'depart'), alerteSig(depart), secours(depart, 30)]
                  : ['aucune station à moins de 15 km du départ avec ce détour — partez le réservoir plein'],
           aBord == null && depart ? depart.s : null));
         const etapes = plan || [];
@@ -801,7 +905,7 @@ function renduCarburant(){
             [[`km ${Math.round(e.km)} · `, ...chipPrix(e), datePrix(e)],
              `${e.plein ? 'le plein' : 'juste ce qu\'il faut'} : ≈ ${Math.round(e.litres)} L (${euros(e.p * lkm * e.q)}) · à bord en arrivant ≈ ${Math.round(e.arrivee + reserve)} km`,
              `détour ${(2 * e.e).toFixed(1).replace('.', ',')} km (+${euros(2 * e.e * lkm * e.p)}) · ≈ ${Math.round(minutes(e))} min`,
-             alerteFige(e), secours(e, e.arrivee + reserve)],
+             alerteFige(e, 'etape'), alerteSig(e), secours(e, e.arrivee + reserve)],
             e.s));
         });
         if(ROUTE_AR){
@@ -817,7 +921,7 @@ function renduCarburant(){
             [`km ${Math.round(total)} · autonomie restante ≈ ${restante(total)} km`]));
           ol.append(item('lt-retour', {pause: true, txt: ''}, 'Retour — plein conseillé à l\'arrivée',
             pleinArrivee ? [[nomVille(pleinArrivee.s), ' · km ', String(Math.round(pleinArrivee.km)), ' · ', ...chipPrix(pleinArrivee), datePrix(pleinArrivee)],
-                            alerteFige(pleinArrivee)]
+                            alerteFige(pleinArrivee, 'arrivee'), alerteSig(pleinArrivee)]
                          : ['aucune station à moins de 15 km de l\'arrivée avec ce détour'],
             pleinArrivee ? pleinArrivee.s : null));
         }
@@ -889,7 +993,7 @@ function renduCarburant(){
         actions.append(bouton('btn', 'Revoir l\'autonomie', () => ouvrirGarage('autonomie'), 'garage'));
         heros.push(el('div', 'heros-etat ko', svg('alerte'), ' ', el('b', null, detours.length ? 'Trajet impossible sans détour' : 'Trajet infaisable avec cette autonomie'),
           ` — ${Math.round(A)} km utiles pour ${Math.round(total)} km : avec les stations à ${larg} km de la route au plus, aucune suite d'arrêts ne passe.`, actions));
-        heros.push(choixDetour(), rappel);
+        heros.push(choixDetour(), rappel, noteEvitees());
         resume = `Plan de pleins : trajet infaisable avec ${Math.round(A)} km d'autonomie utile et les stations à ${larg} km de la route au plus.`;
       }else if(!plan.length){
         // Etat : aucun arret necessaire.
@@ -897,7 +1001,7 @@ function renduCarburant(){
           ` — ${Math.round(total)} km pour ${Math.round(g0)} km utiles${aBord != null ? ' dans le réservoir au départ : ce que vous avez suffit.' : ' : un plein au départ suffit.'}`));
         heros.push(chiffre());
         heros.push(el('p', 'heros-sous', '0 arrêt · ', ligneEco()));
-        heros.push(choixDetour(), rappel, ligneTemps());
+        heros.push(choixDetour(), rappel, noteEvitees(), ligneTemps());
         const lst = [...list].filter(o => moinsCheres.has(o.s)).sort((a,b) => a.v.p - b.v.p || a.s.ecart - b.s.ecart);
         if(lst.length){
           const ul = el('ul', 'liste-min');
@@ -908,12 +1012,46 @@ function renduCarburant(){
       }else{
         heros.push(chiffre());
         heros.push(el('p', 'heros-sous', `${plan.length} arrêt${plan.length > 1 ? 's' : ''} · ≈ ${Math.round(tempsTotal)} min · `, ligneEco()));
-        heros.push(choixDetour(), rappel, ligneTemps());
+        heros.push(choixDetour(), rappel, noteEvitees(), ligneTemps());
         resume = `Plan de pleins : ${plan.length} arrêt${plan.length > 1 ? 's' : ''}${voyage != null ? `, carburant du voyage ${euros(voyage)}` : ''}` +
                  (eco && Math.abs(eco.economie) >= 0.05 ? `, ${eco.economie > 0 ? 'économie' : 'surcoût'} de ${euros(Math.abs(eco.economie))} par rapport au plus cher du trajet` : '') + '.';
       }
+      // Point d'acces de test (banc/, 30/10/2026) : le plan tel qu'il vient d'etre calcule, en
+      // donnees — stations retenues (id, km, litres, prix, date du prix), couts, economie, largeurs
+      // comparees, alertes. Lu par window.__viaminus_plan ou l'evenement viaminus:plan (voir
+      // publierPlan). Rien pour l'utilisateur : aucun DOM, aucune requete, aucune donnee
+      // personnelle (des stations du flux officiel et des noms de villes).
+      const sondeStation = (c, plus) => Object.assign({id: brut(c.s.id), ville: brut(c.s.ville), cp: brut(c.s.cp),
+        km: c.km, detourKm: c.e, prix: c.p, datePrix: c.v.lignes[0].maj || null, fige: c.fige || null,
+        carburants: c.v.lignes.map(l => ({ref: l.ref, prix: l.prix, maj: l.maj || null}))}, plus || {});
+      sonde = {
+        etat: plan === null ? 'infaisable' : plan.length ? 'arrets' : 'aucun-arret',
+        couloir: larg, detourAuto: DETOUR_AUTO,
+        vehicule: {carburant: carbPlan, conso, autonomiePlein: au.plein, A, reserve: resv, aBord, g0},
+        etapes: (plan || []).map(e => sondeStation(e, {q: e.q, litres: e.litres, plein: e.plein, cout: e.p * lkm * e.q, arrivee: e.arrivee})),
+        depart: depart ? sondeStation(depart) : null,
+        arrivee: pleinArrivee ? sondeStation(pleinArrivee) : null,
+        achats: plan === null ? null : r.coutAchats,
+        voyage: plan === null ? null : voyage,
+        aBordValeur: plan === null || voyage == null ? null : voyage - r.coutAchats,   // carburant a bord au depart, valorise
+        prixMoyen: notrePrix,
+        economie: eco,
+        minutes: plan === null ? null : tempsTotal,
+        largeurs: largeurs.map(o => ({w: o.w, faisable: o.ok, voyage: o.v, achats: o.achats,
+                                      aBordValeur: o.ok ? o.v - o.achats : null, arrets: o.arrets, minutes: o.min})),
+        detours: detours.map(o => ({w: o.w, voyage: o.v, minutes: o.min, arrets: o.arrets, conseille: o === dConseil})),
+        candidats: candTous.map(c => sondeStation(c)),
+        alertes,
+      };
     }
     elPlan.replaceChildren(...heros.filter(Boolean));
+    if(sonde){
+      sonde.trajet = TRAJET ? {dep: TRAJET.dep, arr: TRAJET.arr, km: TRAJET.km, min: TRAJET.min, allerRetour: !!TRAJET.ar,
+                               sansPeage: !!TRAJET.sansP, moteur: MOTEUR, total: KMS[KMS.length - 1]} : null;
+      sonde.messages = [...elPlan.querySelectorAll('.heros-etat, .detours-rien, .lt-alerte')].map(x => x.textContent.trim());
+      sonde.resume = resume;
+      publierPlan(sonde);
+    }
     // Region aria-live : un resume court, mis a jour seulement s'il change (le plan est
     // redessine a chaque deplacement de la carte : pas de repetition au lecteur d'ecran).
     if($('planEtat').textContent !== resume) $('planEtat').textContent = resume;
@@ -945,7 +1083,7 @@ function renduCarburant(){
   // ex aequo compris, toutes les moins cheres affichees sont vertes (17/09/2026).
   const minisAff = sel.map((k,i) => Math.min(...tri.map(o => o.v.lignes[i].prix)));
   const miniTotAff = Math.min(...tri.map(o => o.v.p));
-  chipsPrix.forEach(([sp, prix, j]) => { sp.style.background = couleur(prix, refs[j], minisAff[j]); });
+  chipsPrix.forEach(([sp, prix, j]) => marquerPrix(sp, couleur(prix, refs[j], minisAff[j])));
   $('echelle').textContent =
     `— vert = la moins chère affichée, ex æquo compris ; ${sansCherLbl()} · ` +
     sel.map((k,i) => `${k==='spmin'?'SP':COURT[k]} ${minisAff[i].toFixed(3)}` +
@@ -953,18 +1091,20 @@ function renduCarburant(){
   dessinerMarqueurs(tri, minisAff);
   tri.forEach((o, i) => {
     const {s, v} = o;
-    const chips = v.lignes.map((l,j) =>
-      `<span class="pill" style="background:${couleur(l.prix, refs[j], minisAff[j])}">${l.tag} ${l.prix.toFixed(3)}</span>`).join('');
+    const chips = v.lignes.map((l,j) => { const c = couleur(l.prix, refs[j], minisAff[j]);
+      return `<span class="pill" style="background:${c}">${marqueHtml(c)}${l.tag} ${l.prix.toFixed(3)}</span>`; }).join('');
+    const cTot = couleur(v.p, refTotal, miniTotAff);
     const prix = (multi
-      ? `<span class="pill" style="background:${couleur(v.p, refTotal, miniTotAff)}">${v.p.toFixed(3)} €</span>` : '') + chips;
+      ? `<span class="pill" style="background:${cTot}">${marqueHtml(cTot)}${v.p.toFixed(3)} €</span>` : '') + chips;
     const et = etapesStation.get(s), mc = moinsCheres.has(s), ex = extremites.get(s);
     const badges = (ex ? `<span class="badge">${ico('pompe')} ${ex}</span> ` : '') +
-      (et ? `<span class="badge">${ico('pompe')} Étape${et.length > 1 ? 's' : ''} ${et.join(' · ')}</span> ` : mc ? `<span class="badge badge-min">Moins chère</span> ` : '');
+      (et ? `<span class="badge">${ico('pompe')} Étape${et.length > 1 ? 's' : ''} ${et.join(' · ')}</span> ` : mc ? `<span class="badge badge-min">Moins chère</span> ` : '') +
+      sigBadge(s, v.lignes.map(l => l.ref));
     const li = document.createElement('li');
     li.innerHTML = `<button type="button" class="carte${et || mc || ex ? ' etape' : ''}" aria-haspopup="dialog">`+
-      `<span class="ville">${badges}${badgePays(s)}${s.ville} <span class="cp">${s.cp}</span></span>`+
+      `<span class="ville">${badges}${badgePays(s)}${langES(s, s.ville)} <span class="cp">${s.cp}</span></span>`+
       `<span class="prix">${prix}</span>`+
-      `<span class="adr">${s.enseigne ? `${s.enseigne} · ` : ''}${s.adresse}${s.auto ? ' · 24/24' : s.horario ? ` · ${resumerHorario(s.horario)}` : ''}</span>`+
+      `<span class="adr">${s.enseigne ? `${langES(s, s.enseigne)} · ` : ''}${langES(s, s.adresse)}${s.auto ? ' · 24/24' : s.horario ? ` · ${resumerHorario(s.horario)}` : ''}</span>`+
       `<span class="meta"><span>${(ROUTE ? s.ecart : s.d).toFixed(1)} km${ROUTE ? ' du trajet' : ''}</span>`+
       (ROUTE && s.kmr != null ? `<span>km ${Math.round(s.kmr)}</span>` : '')+
       `<span>relevé ${jour(v.maj)}</span></span></button>`;
@@ -1021,8 +1161,8 @@ function ouvrirStation(o, origine){
   const {s, v} = o;
   STATION = s;
   const utilises = v ? v.lignes.map(l => l.ref) : [];
-  $('fsTitre').innerHTML = `${badgePays(s)}${s.ville} <span class="cp" style="font-weight:400;color:var(--muted)">${s.cp}</span>`;
-  $('fsAdresse').innerHTML = (s.enseigne ? `<b>${s.enseigne}</b> · ` : '') + (s.adresse || '<i>adresse non renseignée</i>');
+  $('fsTitre').innerHTML = `${badgePays(s)}${langES(s, s.ville)} <span class="cp" style="font-weight:400;color:var(--muted)">${s.cp}</span>`;
+  $('fsAdresse').innerHTML = (s.enseigne ? `<b>${langES(s, s.enseigne)}</b> · ` : '') + (s.adresse ? langES(s, s.adresse) : '<i>adresse non renseignée</i>');
   // Station espagnole : horaires resumes et ouvert / ferme a l'heure qu'il est (src/es.js) ;
   // la date de ses prix est l'horodatage global du fichier du ministere, pas un releve par station.
   const ouvert = s.horario ? ouvertA(s.horario, new Date()) : null;
@@ -1044,9 +1184,13 @@ function ouvrirStation(o, origine){
     return `<li class="${utilises.includes(k) ? 'hi' : ''}${ko ? ' ko' : ''}"><span>${l}${etat}</span>`+
            `<span class="dt${q.vieux ? ' vieux' : ''}">${c && c.prix != null ? `vu à ${hhmm(c.t)}` : q.txt}</span>`+
            `<b>${s.prix[k].toFixed(3)} €</b>`+
-           `<button type="button" class="fs-edit" data-k="${k}" aria-label="Corriger : ${l}">${ico('crayon')}</button></li>`;
+           `<button type="button" class="fs-edit" data-k="${k}" aria-label="Corriger : ${l}">${ico('crayon')}</button>`+
+           sigLigne(s, k, l) + `</li>`;
   }).join('') || '<li>Aucun prix déclaré.</li>';
   $('fsCarbs').querySelectorAll('.fs-edit').forEach(b => b.onclick = () => editerCarburant(s, b.dataset.k, b.closest('li')));
+  $('fsCarbs').querySelectorAll('.sig-btn').forEach(b => b.onclick = () => signaler(s, b.dataset.k, b.dataset.etat, b));
+  $('fsSigNote').hidden = !SIG_ACTIF || !idSignalable(s.id);
+  sigMessageRendu();
   ouvrirFeuille('ficheStation', origine);
 }
 function editerCarburant(s, k, li){
@@ -1331,6 +1475,15 @@ let tronque = 0, seq = 0, minuteur = null, majCompte = () => {};
 // Etat (region aria-live) : fraicheur des prix + compteur ; un message ponctuel
 // (adresse copiee, position refusee) prend la place le temps de quelques secondes.
 let etatPrix = 'chargement…', etatTempo = null;
+// Hors ligne (30/10/2026) : le service worker (pwa/sw.js) sert la derniere reponse en cache quand
+// le reseau se tait et la date par l'en-tete x-viaminus-date ; la page la note pour l'etat et le
+// bandeau « Hors ligne — prix du … ». Vide a chaque chargement : une reponse en direct efface tout.
+let REPLI_DATES = [];
+const noterRepli = r => { const d = r && r.headers && r.headers.get('x-viaminus-date'); if(d) REPLI_DATES.push(d); return r; };
+const quandRepli = () => {
+  const t = REPLI_DATES.map(d => Date.parse(d)).filter(Number.isFinite);
+  return t.length ? new Date(Math.min(...t)).toLocaleString('fr-FR', {weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '';
+};
 function majEtat(ponctuel){
   const el = $('etat');
   if(ponctuel){
@@ -1372,6 +1525,7 @@ async function chargerProvinceES(id){
   if(c && Date.now() - c.t < ES_CACHE_MS) return c.stations;
   const r = await fetch(ES_URL + id, {signal: AbortSignal.timeout(20000)});
   if(!r.ok) throw new Error('HTTP ' + r.status);
+  noterRepli(r);
   const j = await r.json();
   if(!j || j.ResultadoConsulta !== 'OK' || !Array.isArray(j.ListaEESSPrecio)) throw new Error('réponse espagnole inattendue');
   // Stations ignorees et comptees : coordonnees manquantes (absentes, a 0, hors de l'Espagne —
@@ -1425,6 +1579,145 @@ function fusionnerES(fr, es, nZones){
 }
 const etatES = () => ES_KO ? ' · <span class="ko">prix espagnols indisponibles</span>' : '';
 
+// ---------- Signalements partagés « pompe vide » (src/signalements.js, partie 2, 30/10/2026) ----------
+// Le flux officiel ne sait pas qu'une pompe est vide ; les personnes sur place, si (Lodeve, 26/10/2026).
+// Un service minimal et anonyme (Cloudflare Worker + base D1, branche claude/signalements-worker,
+// worker/README.md) recoit « Pompe vide » / « De nouveau dispo » et sert l'agregat par station et
+// carburant sur 48 h. Hote configure A LA GENERATION (generate.py --signalements-url, jeton
+// __SIGNALEMENTS_URL__) : vide = fonction desactivee, aucune requete, aucun hote dans la CSP, rien
+// d'affiche. Anonymat : la page n'envoie QUE l'identifiant de la station, le carburant et l'etat —
+// jamais la position, jamais le garage, jamais d'identifiant d'appareil (le service ne pose aucun
+// cookie). Echec reseau = silence : les badges s'effacent, le reste ne change pas.
+const SIGNALEMENTS_URL = "__SIGNALEMENTS_URL__";
+const SIG_ACTIF = /^https:\/\//.test(SIGNALEMENTS_URL);
+const SIG_CACHE = new Map();   // id de station -> {t, etat} ; etat = {e85: {vide, ok, dernier}, …} ou null (rien sur 48 h)
+let SIG_JOURNAL = sigJournalLu();   // {"<station>|<carburant>": t} : un signalement par 6 h (quota du service)
+function sigJournalLu(){
+  try{ return purgerJournal(JSON.parse(localStorage.getItem(CLE_SIGNALEMENTS)), Date.now()); }
+  catch(e){ return {}; }
+}
+function sigJournalEcrit(j){
+  SIG_JOURNAL = j;
+  try{ localStorage.setItem(CLE_SIGNALEMENTS, JSON.stringify(j)); }catch(e){ /* stockage refuse */ }
+}
+// Agregat connu d'une station, quelle que soit sa fraicheur (un agregat de deux minutes vaut mieux
+// que rien ; le cache ne borne que les requetes) ; null sinon.
+const sigEtat = s => { const c = SIG_CACHE.get(s.id); return c ? c.etat : null; };
+const sigDe = (s, k) => { const e = sigEtat(s); return e && e[k] && typeof e[k] === 'object' ? e[k] : null; };
+// Agregats des stations affichees et des candidates du plan (DATA), par lots de 400, cache 60 s.
+// `mien` = numero du chargement (seq) : une reponse d'une emprise depassee est rangee au cache mais
+// ne redessine rien, comme pour le flux. Echec (reseau, 4xx, 5xx, JSON illisible) : silence, nouvel
+// essai au prochain chargement. Jamais appele quand l'URL n'est pas configuree.
+async function chargerSignalements(stations, mien){
+  if(!SIG_ACTIF) return;
+  const t = Date.now();
+  const lots = lotsIds(stations.map(s => s.id).filter(id => { const c = SIG_CACHE.get(id); return !c || t - c.t >= SIG_CACHE_MS; }));
+  if(!lots.length) return;
+  let change = false;
+  await Promise.all(lots.map(async lot => {
+    try{
+      const r = await fetch(`${SIGNALEMENTS_URL}/v1/etat?ids=${lot.join(',')}`, {signal: AbortSignal.timeout(10000)});
+      if(!r.ok) return;
+      const j = await r.json();
+      if(!j || typeof j !== 'object' || Array.isArray(j)) return;
+      const t2 = Date.now();
+      lot.forEach(id => {
+        const e = Object.prototype.hasOwnProperty.call(j, id) && j[id] && typeof j[id] === 'object' ? j[id] : null;
+        const avant = SIG_CACHE.get(id);
+        if(e || (avant && avant.etat)) change = true;
+        SIG_CACHE.set(id, {t: t2, etat: e});
+      });
+    }catch(e){ /* service muet : rien a afficher, rien ne casse */ }
+  }));
+  if(change && mien === seq) rendu();
+}
+// Badge sobre de la liste et des cartes : « E85 signalé vide il y a 2 h (3) » (rouge) ou « E85 de
+// nouveau dispo il y a 40 min » (vert) — couleur ET texte, icone Lucide ; un « vide » prime.
+function sigBadge(s, refs){
+  if(!SIG_ACTIF) return '';
+  const t = Date.now();
+  const l = refs.map(k => ({k, a: sigDe(s, k)})).filter(o => o.a && libelle(o.a, t));
+  if(!l.length) return '';
+  const o = l.find(x => +x.a.vide >= 1) || l[0], vide = +o.a.vide >= 1;
+  return `<span class="badge badge-sig ${vide ? 'vide' : 'dispo'}">${ico(vide ? 'alerte' : 'coche')} ${COURT[o.k] || esc(o.k)} ${esc(libelle(o.a, t))}</span> `;
+}
+// Fiche station, sous chaque carburant vendu : l'etat partage, puis « Pompe vide » et « De nouveau
+// dispo » (44 px), desactives avec le delai restant quand ce carburant a deja ete signale ici
+// depuis moins de 6 h (journal local, meme regle que le quota du service).
+function sigLigne(s, k, l){
+  if(!SIG_ACTIF || !idSignalable(s.id) || !carburantSignalable(k)) return '';
+  const t = Date.now(), a = sigDe(s, k), txt = a ? libelle(a, t) : '', vide = !!a && +a.vide >= 1;
+  const reste = delaiRestant(SIG_JOURNAL, s.id, k, t);
+  const dis = reste > 0 ? ' disabled' : '';
+  return `<span class="sig-ligne">` +
+    (txt ? `<span class="sig-lbl ${vide ? 'vide' : 'dispo'}">${ico(vide ? 'alerte' : 'coche')} ${esc(txt)}</span>` : '') +
+    `<span class="sig-btns">` +
+    `<button type="button" class="sig-btn vide" data-k="${k}" data-etat="vide"${dis} aria-label="Signaler la pompe ${l} vide">${ico('alerte')} Pompe vide</button>` +
+    `<button type="button" class="sig-btn ok" data-k="${k}" data-etat="ok"${dis} aria-label="Signaler ${l} de nouveau disponible">${ico('coche')} De nouveau dispo</button></span>` +
+    (reste > 0 ? `<span class="sig-attente">déjà signalé depuis cet appareil · de nouveau possible ${libelleDelai(reste)}</span>` : '') +
+    `</span>`;
+}
+// Confirmation ou erreur, montree dans la fiche de CETTE station (elle survit au redessin de la fiche).
+let SIG_MSG = null, sigMsgTempo = null;
+function sigMessage(s, texte, ko){
+  SIG_MSG = {id: s.id, texte, ko};
+  clearTimeout(sigMsgTempo);
+  if(!ko) sigMsgTempo = setTimeout(() => { SIG_MSG = null; sigMessageRendu(); }, 8000);
+  sigMessageRendu();
+}
+function sigMessageRendu(){
+  const el = $('fsSigMsg');
+  const m = SIG_MSG && STATION && SIG_MSG.id === STATION.id ? SIG_MSG : null;
+  el.hidden = !m;
+  el.textContent = m ? m.texte : '';
+  el.classList.toggle('ko', !!(m && m.ko));
+}
+// Envoi d'un signalement : POST {station, carburant, etat} — rien d'autre. 201 : agregat de la
+// station range au cache, journal local note, merci discret ; 429 : message humain (quota du
+// service) ; autre echec : message. Dans tous les cas la correction LOCALE suit votre observation
+// (« vide » : la station est grisee pour vous comme avec « Corriger », « ok » : elle revient) —
+// corriger() redessine la carte, la liste et rouvre la fiche.
+async function signaler(s, k, etat, bouton){
+  if(!SIG_ACTIF || !peutSignaler(SIG_JOURNAL, s.id, k, Date.now())) return;
+  $('fsCarbs').querySelectorAll('.sig-btn').forEach(b => { b.disabled = true; });
+  sigMessage(s, 'envoi du signalement…', false);
+  let r = null;
+  try{
+    r = await fetch(`${SIGNALEMENTS_URL}/v1/signalement`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({station: s.id, carburant: k, etat}), signal: AbortSignal.timeout(10000)});
+  }catch(e){ r = null; }
+  const nom = COURT[k] || k;
+  if(r && r.status === 201){
+    let j = null;
+    try{ j = await r.json(); }catch(e){ j = null; }
+    if(j && typeof j === 'object' && !Array.isArray(j))
+      SIG_CACHE.set(s.id, {t: Date.now(), etat: j[s.id] && typeof j[s.id] === 'object' ? j[s.id] : null});
+    sigJournalEcrit(noterSignalement(SIG_JOURNAL, s.id, k, Date.now()));
+    sigMessage(s, etat === 'vide' ? `Merci : pompe ${nom} signalée vide, partagée avec les autres utilisateurs pendant 48 h.`
+                                  : `Merci : ${nom} signalé de nouveau disponible, partagé avec les autres utilisateurs.`, false);
+  }else if(r && r.status === 429){
+    sigMessage(s, `Gardé sur cet appareil, mais pas partagé : trop de signalements pour le moment (au plus 5 par heure, et un par station et carburant toutes les 6 h). Réessayez plus tard.`, true);
+  }else if(r){
+    sigMessage(s, `Gardé sur cet appareil, mais pas partagé : le service a refusé le signalement (erreur ${r.status}).`, true);
+  }else{
+    sigMessage(s, 'Gardé sur cet appareil, mais pas partagé : service de signalements injoignable. Réessayez plus tard.', true);
+  }
+  if(etat === 'vide' && !signaleVide(s, k)) corriger(s, [k], {vide: true});
+  else if(etat === 'ok' && signaleVide(s, k)) corriger(s, [k], null);
+  else{
+    rendu();
+    if(STATION && STATION.id === s.id && !$('ficheStation').hidden)
+      ouvrirStation({s: DATA.find(x => x.id === s.id) || RUPTURES.find(x => x.id === s.id) || s, v: null});
+  }
+}
+// Option du plan : « Éviter les pompes signalées vides (12 h) », activee par defaut, visible
+// seulement quand le service est configure (sans lui, rien a eviter).
+$('eviterVidesLbl').hidden = !SIG_ACTIF;
+if(REGL.eviterVides === false) $('eviterVides').checked = false;
+$('eviterVides').onchange = () => { REGL.eviterVides = $('eviterVides').checked; reglagesBruts(); rendu(); };
+const eviterVidesActif = () => SIG_ACTIF && $('eviterVides').checked;
+
 // Stations en rupture du carburant choisi. Le flux vide le prix pendant la rupture :
 // la station sort de la requete principale et semblait « oubliee ». Constate le
 // 26/10/2026 : Le Bosc (A75), E85 en rupture depuis le 04/09, Waze affichait encore
@@ -1450,6 +1743,7 @@ async function chargerRuptures(zones, sel){
                                  `${z.n.toFixed(5)}, ${z.e.toFixed(5)})` + clause);
     const r = await fetch(`${URL_API}?where=${w}&select=${SEL_KO}&limit=100`, {signal: AbortSignal.timeout(20000)});
     if(!r.ok) throw new Error('HTTP '+r.status);
+    noterRepli(r);
     return (await r.json()).results;
   }));
   const vus = new Set();
@@ -1503,6 +1797,7 @@ async function charger(){
   // Accessoire et en parallele : une panne ici ne bloque jamais les prix.
   const ko = chargerRuptures(zones, choix()).catch(() => []);
   // Espagne, en parallele et a part : une panne la ne touche ni les prix francais ni le repli.
+  REPLI_DATES = [];
   const es = chargerES(zones).catch(() => { ES_KO = true; return []; });
   etatPrix = 'chargement…'; majEtat();
   try{
@@ -1515,6 +1810,7 @@ async function charger(){
       while(off < tot && off < PLAFOND){
         const r = await fetch(`${URL_API}?where=${bbox}&select=${SEL}&limit=100&offset=${off}`, {signal: AbortSignal.timeout(20000)});
         if(!r.ok) throw new Error('HTTP '+r.status);
+        noterRepli(r);
         const j = await r.json();
         if(mien !== seq) return;
         tot = j.total_count; rows = rows.concat(j.results); off += 100;
@@ -1531,8 +1827,15 @@ async function charger(){
     const kos = await ko;
     if(mien !== seq) return;
     RUPTURES = ROUTE ? kos.filter(situerSurTrace) : kos;
-    etatPrix = 'prix en direct · ' + new Date().toLocaleString('fr-FR',
-      {weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + etatES();
+    const repli = quandRepli();
+    if(repli){   // au moins une reponse vient du cache du service worker : prix d'une date passee
+      etatPrix = '<span class="ko">hors ligne</span> — prix du ' + esc(repli) + etatES();
+      montrerHorsLigne('Hors ligne — prix du ' + repli);
+    }else{
+      etatPrix = 'prix en direct · ' + new Date().toLocaleString('fr-FR',
+        {weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + etatES();
+      cacherHorsLigne();
+    }
   }catch(e){
     if(mien !== seq) return;
     const vis = emprise();
@@ -1543,12 +1846,15 @@ async function charger(){
     DATA = fusionnerES(normalise(SNAPSHOT).filter(s => dansEmprise(vis, s.la, s.lo)), esStations, zones.length);
     RUPTURES = [];
     etatPrix = '<span class="ko">hors ligne</span> — relevé du ' + SNAP_DATE + etatES();
+    if(navigator.onLine === false) montrerHorsLigne('Hors ligne — aucun prix récent en mémoire pour cette zone');
   }
+  chargerSignalements(DATA, mien);   // agregats « pompe vide » : redessine a leur arrivee (si l'emprise n'a pas change)
   rendu();
   chargerBornes();   // vehicule thermique : seulement si l'option « Afficher les bornes » est cochee
 }
 
-if(map){
+// Evenements de la carte : branches par initialiserCarte() (voir brancherCarte, plus bas).
+function brancherDeplacements(){
   map.on('moveend', () => {
     if(ROUTE){ rendu(); return; }      // couloir deja charge : simple refiltrage
     clearTimeout(minuteur);
@@ -1668,7 +1974,8 @@ function poserRepere(ll){
   if(navigator.vibrate) navigator.vibrate(15);
   situer(ll.lat, ll.lng, 'Point de repère', true);
 }
-if(map){
+function brancherCarte(){
+  brancherDeplacements();
   map.on('contextmenu', e => { e.preventDefault(); poserRepere(e.lngLat); });
   const cc = map.getCanvasContainer();
   let minuteurAppui = null, p0 = null;
@@ -2070,7 +2377,8 @@ async function calculerTrajet(ev){
     if(CARTE){
       const features = [{type: 'Feature', properties: {sens: 'aller'}, geometry: {type: 'LineString', coordinates: aller.pts}}];
       if(retour) features.push({type: 'Feature', properties: {sens: 'retour'}, geometry: {type: 'LineString', coordinates: retour.pts}});
-      CARTE.donnees('fh-trace', {type: 'FeatureCollection', features});
+      TRACE = {type: 'FeatureCollection', features};
+      CARTE.donnees('fh-trace', TRACE);
       // Cadrage sur le trace : geste explicite (le bouton), donc autorise — sauf trajet
       // importe par l'URL, pose sans animation ; la feuille s'ouvre a moitie sur mobile,
       // le cadrage laisse la place en bas.
@@ -2093,7 +2401,8 @@ async function calculerTrajet(ev){
     charger();
   }catch(e){
     if(mien !== CALCUL_N) return;
-    infoT.textContent = e.message;
+    // Hors ligne : adresses et trace demandent le reseau (jamais mis en cache) ; on le dit tel quel.
+    infoT.textContent = navigator.onLine === false ? 'Hors ligne : itinéraire indisponible (adresses et tracé demandent le réseau).' : e.message;
     if(sansGeste) charger();   // trajet importe injoignable : les prix autour de soi, au moins
   }
 }
@@ -2112,6 +2421,7 @@ $('inverser').onclick = () => {
 $('effacer').onclick = () => {
   CALCUL_N++;   // un calcul en vol ne doit plus reposer un trace
   ROUTE = null; KMS = null; I_RETOUR = null; ALLER_KM = null; ROUTE_AR = false; TRAJET = null;
+  TRACE = TRACE_VIDE;
   if(CARTE) CARTE.donnees('fh-trace', TRACE_VIDE);
   $('effacer').hidden = true;
   majTrajets(); majPilule(); replierStations(false); rendu();
@@ -2265,14 +2575,43 @@ function situerBorne(b){
 // rendu() est appele partout ou l'etait l'ancien rendu : vehicule electrique -> renduElec()
 // (bornes + plan de charge) ; thermique -> renduCarburant() tel quel, puis les bornes si demandees.
 let PLAN_ICO = 'pompe';
+// Le focus survit au re-rendu du panneau (liste refaite a chaque deplacement de la carte, plan
+// refait a chaque choix de detour) : l'element actif est retrouve par son data-id (carte de
+// station ou de borne), sinon par sa classe et son rang dans le panneau. Sans cela, un
+// utilisateur au clavier retombait sur le corps de la page apres chaque redessin (audit du 30/10/2026).
+function focusPanneau(){
+  const a = document.activeElement;
+  if(!a || !$('corps').contains(a) || !a.classList.length) return null;
+  const cls = a.classList[0];
+  return {cls, id: a.dataset.id || null, i: [...$('corps').querySelectorAll('.' + CSS.escape(cls))].indexOf(a)};
+}
+function restaurerFocus(f){
+  if(!f || $('corps').contains(document.activeElement) && document.activeElement !== document.body) return;
+  let el = f.id ? $('corps').querySelector(`.${CSS.escape(f.cls)}[data-id="${CSS.escape(f.id)}"]`) : null;
+  if(!el && f.i >= 0) el = $('corps').querySelectorAll('.' + CSS.escape(f.cls))[f.i] || null;
+  if(el && el.offsetParent !== null) el.focus({preventScroll: true});
+}
 function rendu(){
+  const f = focusPanneau();
   const elec = estElec();
   if(PLAN_ICO !== (elec ? 'eclair' : 'pompe')){ PLAN_ICO = elec ? 'eclair' : 'pompe'; $('planIco').innerHTML = ico(PLAN_ICO); }
-  if(elec){ renduElec(); return; }
-  $('secStations').hidden = false;
-  renduCarburant();
-  renduBornes(false, null);
+  if(elec) renduElec();
+  else{
+    $('secStations').hidden = false;
+    renduCarburant();
+    renduBornes(false, null);
+  }
+  restaurerFocus(f);
 }
+// Lien d'evitement : la liste visible (stations, ou bornes pour un vehicule electrique), panneau
+// deplie sur mobile, focus sur la premiere carte (sinon sur la liste elle-meme).
+$('evitement').addEventListener('click', e => {
+  e.preventDefault();
+  deplier('plein');
+  const l = estElec() ? $('listeBornes') : $('liste');
+  (l.querySelector('.carte') || l).focus();
+  l.scrollIntoView({block: 'start'});
+});
 // Construction DOM (textContent, jamais innerHTML sur une chaine externe).
 const mk = (tag, cls, ...enfants) => {
   const e = document.createElement(tag);
@@ -2618,6 +2957,8 @@ function lancerTrajetImporte(){
 }
 if(TRAJET_IMPORT && !TRAJET_IMPORT.attendPosition) lancerTrajetImporte();
 else charger();     // on affiche tout de suite, sans attendre l'autorisation
+// La carte nait a la frame suivante, la premiere requete deja partie (voir initialiserCarte).
+requestAnimationFrame(initialiserCarte);
 localiser(true, () => lancerTrajetImporte());   // puis on recentre sur l'appareil si l'utilisateur accepte
 
 // ---------- Assistant vehicule (premier lancement, ou bouton du garage) ----------
@@ -2637,18 +2978,37 @@ if(PREMIER && !IMPORT_HASH && !REGL.assistantVu) setTimeout(() => ASSISTANT.ouvr
 // aussi a jour le cache, donc le rechargement recupere bien la nouvelle version.
 // Rien en file:// (fetch refuse) ; nouvelle verification au retour sur l'onglet,
 // au plus toutes les 10 minutes.
+// Avec le service worker (30/10/2026) : une nouvelle version detectee enregistre sw.js?v=<build>
+// (nouvelle URL = nouveau worker), qui met la nouvelle page en cache ; le bandeau n'apparait que
+// quand ce worker est pret (« installed »), et Recharger lui demande de prendre la main. Jamais
+// de rechargement automatique.
 const BUILD = document.querySelector('meta[name="fuelpilot-build"]')?.content || '';
 let derniereVerif = 0;
+// Le marqueur est dans les premiers 2 Ko de la page : on lit le flux jusqu'a lui et on
+// l'interrompt, au lieu de telecharger 1,4 Mo et de les analyser au DOMParser (mesure du
+// 30/10/2026 : 23 ms de calcul au demarrage, et toute la page re-telechargee a chaque ouverture).
+// Premiere verification 3 s apres le demarrage : elle ne concurrence plus le premier rendu.
 async function verifierVersion(){
   if(!/^https?:$/.test(location.protocol) || !BUILD) return;
   if(Date.now() - derniereVerif < 600000) return;
   derniereVerif = Date.now();
   try{
     const r = await fetch(location.pathname, {cache: 'no-cache'});
-    if(!r.ok) return;
-    const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
-    const enLigne = doc.querySelector('meta[name="fuelpilot-build"]')?.content;
-    if(enLigne && enLigne !== BUILD) montrerNouvelleVersion();
+    if(!r.ok || !r.body) return;
+    const lecteur = r.body.getReader(), dec = new TextDecoder();
+    let txt = '', m = null;
+    while(!m && txt.length < 65536){
+      const {value, done} = await lecteur.read();
+      if(value) txt += dec.decode(value, {stream: true});
+      m = txt.match(/<meta name="fuelpilot-build" content="([^"]*)"/);
+      if(done) break;
+    }
+    lecteur.cancel().catch(() => {});
+    const enLigne = m && m[1];
+    if(enLigne && enLigne !== BUILD){
+      if(SW_OK) enregistrerSW(enLigne).then(reg => { if(!reg) montrerNouvelleVersion(); });
+      else montrerNouvelleVersion();
+    }
   }catch(e){ /* hors ligne : on reessaiera au prochain retour sur l'onglet */ }
 }
 function montrerNouvelleVersion(){
@@ -2659,12 +3019,66 @@ function montrerNouvelleVersion(){
   t.textContent = 'Nouvelle version de ViaMinus disponible';
   const b = document.createElement('button');
   b.type = 'button'; b.className = 'btn primaire'; b.textContent = 'Recharger';
-  b.onclick = () => location.reload();
+  b.onclick = () => rechargerNouvelleVersion();
   const x = document.createElement('button');
   x.type = 'button'; x.className = 'btn'; x.textContent = 'Plus tard';
   x.onclick = () => d.remove();
   d.append(t, b, x);
-  document.body.appendChild(d);
+  ($('bandeaux') || document.body).appendChild(d);
 }
-verifierVersion();
+setTimeout(verifierVersion, 3000);
 document.addEventListener('visibilitychange', () => { if(!document.hidden) verifierVersion(); });
+
+// ---------- Appli installable et hors-ligne (service worker, 30/10/2026) ----------
+// Uniquement en http(s) avec un navigateur qui sait faire : en file:// rien ne change (le
+// fuelpilot.html telecharge marche comme avant, sans installation ni hors-ligne). sw.js est
+// servi a cote de la page (pwa/) ; s'il manque ou echoue, la page fonctionne comme avant.
+const SW_OK = /^https?:$/.test(location.protocol) && 'serviceWorker' in navigator;
+let SW_ATTENTE = null;   // worker installe, en attente : la nouvelle version prete
+function surveillerSW(reg){
+  const suivre = w => {
+    if(!w) return;
+    w.addEventListener('statechange', () => {
+      if(w.state === 'installed' && navigator.serviceWorker.controller){ SW_ATTENTE = w; montrerNouvelleVersion(); }
+    });
+  };
+  if(reg.waiting && navigator.serviceWorker.controller){ SW_ATTENTE = reg.waiting; montrerNouvelleVersion(); }
+  suivre(reg.installing);
+  reg.addEventListener('updatefound', () => suivre(reg.installing));
+}
+async function enregistrerSW(build){
+  if(!SW_OK) return null;
+  const page = location.pathname.split('/').pop();   // '' | index.html | fuelpilot.html : la coquille a pre-cacher
+  const u = 'sw.js?v=' + encodeURIComponent(build || BUILD) + (page && page !== 'index.html' ? '&p=' + encodeURIComponent(page) : '');
+  try{
+    const reg = await navigator.serviceWorker.register(u);
+    surveillerSW(reg);
+    return reg;
+  }catch(e){ return null; }
+}
+function rechargerNouvelleVersion(){
+  if(!SW_ATTENTE){ location.reload(); return; }
+  let fait = false;
+  const recharger = () => { if(!fait){ fait = true; location.reload(); } };
+  navigator.serviceWorker.addEventListener('controllerchange', recharger);
+  SW_ATTENTE.postMessage({type: 'activer'});
+  setTimeout(recharger, 3000);   // le worker ne repond pas : on recharge quand meme (reseau d'abord)
+}
+if(SW_OK) window.addEventListener('load', () => { enregistrerSW(BUILD); });
+
+// Bandeau « Hors ligne — prix du … » (discret, empile avec « nouvelle version ») et mot sur la carte.
+function montrerHorsLigne(texte){
+  let d = $('horsLigne');
+  if(!d){
+    d = document.createElement('div');
+    d.id = 'horsLigne'; d.className = 'maj-dispo hors-ligne'; d.setAttribute('role', 'status');
+    ($('bandeaux') || document.body).appendChild(d);
+  }
+  const i = document.createElement('span'); i.innerHTML = ico('alerte');   // icone constante, texte en textContent
+  d.replaceChildren(i, document.createTextNode(' '), Object.assign(document.createElement('b'), {textContent: texte}));
+}
+function cacherHorsLigne(){ $('horsLigne')?.remove(); }
+function majCarteHorsLigne(){ const el = $('carteHorsLigne'); if(el) el.hidden = navigator.onLine !== false; }
+window.addEventListener('offline', majCarteHorsLigne);
+window.addEventListener('online', () => { majCarteHorsLigne(); charger(); });
+majCarteHorsLigne();

@@ -1,0 +1,4 @@
+# Copier en `.dev.vars` (ignoré par git) pour `wrangler dev`.
+# En production : `wrangler secret put SEL` avec une valeur aléatoire longue
+# (par exemple `openssl rand -hex 32`).
+SEL=remplacer-par-une-valeur-aleatoire-longue
