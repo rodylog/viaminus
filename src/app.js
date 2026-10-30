@@ -184,24 +184,38 @@ if(!CENTRE) CENTRE = [46.603, 2.334];
 
 // ---------- Carte (MapLibre GL, fond IGN) ----------
 // Sans WebGL : message sur fond neutre, le reste (liste, garage, plan) fonctionne.
-const CARTE = creerCarte({centre: CENTRE, zoom: ZOOM0, sombre: sombreEffectif(), fond: REGL.fond});
-const map = CARTE ? CARTE.map : null;
-if(!CARTE){
-  $('map').hidden = true;
-  $('sansWebgl').hidden = false;
-}
+// Creation DIFFEREE (audit du 30/10/2026) : le constructeur MapLibre (~30 ms) s'executait avant
+// le premier appel au flux des prix, qu'il retardait d'autant ; initialiserCarte() est appelee a
+// la frame suivant le lancement du premier chargement (voir en bas), pendant que la requete est
+// en vol. L'emprise de ce premier appel est calculee sans la carte (emprise(), Mercator) : memes
+// bornes que celles que MapLibre donnera, donc pas de second appel. Tout ce qui touche la carte
+// est garde par `if(CARTE)` / `if(map)` : c'est deja le cas pour le chemin sans WebGL.
+let CARTE = null, map = null, repere = null;
 // Repere (pastille bleue) : les distances partent d'ici.
 const elRepere = document.createElement('div');
 elRepere.className = 'repere';
 elRepere.title = 'Point de repère — les distances partent d\'ici';
-const repere = CARTE ? CARTE.marqueur(CENTRE[0], CENTRE[1], elRepere) : null;
 // Trace du trajet (couche GeoJSON, remise apres chaque changement de style).
 const TRACE_VIDE = {type: 'FeatureCollection', features: []};
-// Aller-retour : le retour est un second trait, decale de quelques pixels pour se lire.
-if(CARTE) CARTE.couche('fh-trace', {type: 'geojson', data: TRACE_VIDE},
-  {type: 'line', layout: {'line-cap': 'round', 'line-join': 'round'},
-   paint: {'line-color': '#1d4ed8', 'line-width': 5, 'line-opacity': 0.45,
-           'line-offset': ['case', ['==', ['get', 'sens'], 'retour'], 6, 0]}});
+let TRACE = TRACE_VIDE;   // dernier trace pose (repris si la carte nait apres le calcul du trajet)
+function initialiserCarte(){
+  if(CARTE || $('sansWebgl').hidden === false) return;
+  CARTE = creerCarte({centre: CENTRE, zoom: ZOOM0, sombre: sombreEffectif(), fond: REGL.fond});
+  map = CARTE ? CARTE.map : null;
+  if(!CARTE){
+    $('map').hidden = true;
+    $('sansWebgl').hidden = false;
+    return;
+  }
+  repere = CARTE.marqueur(CENTRE[0], CENTRE[1], elRepere);
+  // Aller-retour : le retour est un second trait, decale de quelques pixels pour se lire.
+  CARTE.couche('fh-trace', {type: 'geojson', data: TRACE},
+    {type: 'line', layout: {'line-cap': 'round', 'line-join': 'round'},
+     paint: {'line-color': '#1d4ed8', 'line-width': 5, 'line-opacity': 0.45,
+             'line-offset': ['case', ['==', ['get', 'sens'], 'retour'], 6, 0]}});
+  brancherCarte();          // evenements (deplacement, appui long, clic droit), definis plus bas
+  if(DATA.length || BORNES.length) rendu();   // un rendu a deja eu lieu sans carte : poser ses marqueurs
+}
 
 let MARQUEURS = [];   // marqueurs HTML des stations et reperes du plan, refaits a chaque rendu
 let DATA = [], sortKey = 'prix', sortAsc = true;
@@ -421,7 +435,16 @@ const sansCherLbl = () => $('sansCher').checked
 // que si elle est finie et non degeneree ; sinon on interroge autour du repere, et la
 // carte relance un chargement des qu'elle recoit sa taille (evenement resize).
 let empriseProvisoire = false;
+// Memo le temps d'une passe synchrone (un rendu appelle emprise() trois ou quatre fois ; chaque
+// appel force une mise en page) ; vide a la microtache suivante, donc jamais perime apres un await.
+let EMPRISE_MEMO = null;
 function emprise(){
+  if(EMPRISE_MEMO) return EMPRISE_MEMO;
+  const e = empriseCalculee();
+  EMPRISE_MEMO = e; queueMicrotask(() => { EMPRISE_MEMO = null; });
+  return e;
+}
+function empriseCalculee(){
   if(map){
     const c = map.getContainer();
     if(c.clientWidth > 0 && c.clientHeight > 0){
@@ -432,6 +455,15 @@ function emprise(){
         return {s: Math.max(-85, s), n: Math.min(85, n), w: Math.max(-180, w), e: Math.min(180, e)};
       }
     }
+  }else if($('map').clientWidth > 0 && $('map').clientHeight > 0 && $('sansWebgl').hidden){
+    // Carte pas encore creee (premier chargement) : bornes Mercator du conteneur deja mis en page,
+    // au centre et au zoom initiaux — ce que MapLibre affichera a la frame suivante.
+    const w = $('map').clientWidth, h = $('map').clientHeight, monde = 512 * 2 ** ZOOM0, r = Math.PI / 180;
+    const x = (CENTRE[1] + 180) / 360 * monde;
+    const y = (1 - Math.log(Math.tan(CENTRE[0] * r) + 1 / Math.cos(CENTRE[0] * r)) / Math.PI) / 2 * monde;
+    const lon = px => px / monde * 360 - 180, lat = py => Math.atan(Math.sinh(Math.PI * (1 - 2 * py / monde))) / r;
+    empriseProvisoire = false;
+    return {s: Math.max(-85, lat(y + h / 2)), n: Math.min(85, lat(y - h / 2)), w: Math.max(-180, lon(x - w / 2)), e: Math.min(180, lon(x + w / 2))};
   }
   empriseProvisoire = true;
   if(ZOOM0 < 10) return {s: 41.2, n: 51.3, w: -5.5, e: 9.8};     // France entiere
@@ -1567,7 +1599,8 @@ async function charger(){
   chargerBornes();   // vehicule thermique : seulement si l'option « Afficher les bornes » est cochee
 }
 
-if(map){
+// Evenements de la carte : branches par initialiserCarte() (voir brancherCarte, plus bas).
+function brancherDeplacements(){
   map.on('moveend', () => {
     if(ROUTE){ rendu(); return; }      // couloir deja charge : simple refiltrage
     clearTimeout(minuteur);
@@ -1687,7 +1720,8 @@ function poserRepere(ll){
   if(navigator.vibrate) navigator.vibrate(15);
   situer(ll.lat, ll.lng, 'Point de repère', true);
 }
-if(map){
+function brancherCarte(){
+  brancherDeplacements();
   map.on('contextmenu', e => { e.preventDefault(); poserRepere(e.lngLat); });
   const cc = map.getCanvasContainer();
   let minuteurAppui = null, p0 = null;
@@ -2089,7 +2123,8 @@ async function calculerTrajet(ev){
     if(CARTE){
       const features = [{type: 'Feature', properties: {sens: 'aller'}, geometry: {type: 'LineString', coordinates: aller.pts}}];
       if(retour) features.push({type: 'Feature', properties: {sens: 'retour'}, geometry: {type: 'LineString', coordinates: retour.pts}});
-      CARTE.donnees('fh-trace', {type: 'FeatureCollection', features});
+      TRACE = {type: 'FeatureCollection', features};
+      CARTE.donnees('fh-trace', TRACE);
       // Cadrage sur le trace : geste explicite (le bouton), donc autorise — sauf trajet
       // importe par l'URL, pose sans animation ; la feuille s'ouvre a moitie sur mobile,
       // le cadrage laisse la place en bas.
@@ -2131,6 +2166,7 @@ $('inverser').onclick = () => {
 $('effacer').onclick = () => {
   CALCUL_N++;   // un calcul en vol ne doit plus reposer un trace
   ROUTE = null; KMS = null; I_RETOUR = null; ALLER_KM = null; ROUTE_AR = false; TRAJET = null;
+  TRACE = TRACE_VIDE;
   if(CARTE) CARTE.donnees('fh-trace', TRACE_VIDE);
   $('effacer').hidden = true;
   majTrajets(); majPilule(); replierStations(false); rendu();
@@ -2666,6 +2702,8 @@ function lancerTrajetImporte(){
 }
 if(TRAJET_IMPORT && !TRAJET_IMPORT.attendPosition) lancerTrajetImporte();
 else charger();     // on affiche tout de suite, sans attendre l'autorisation
+// La carte nait a la frame suivante, la premiere requete deja partie (voir initialiserCarte).
+requestAnimationFrame(initialiserCarte);
 localiser(true, () => lancerTrajetImporte());   // puis on recentre sur l'appareil si l'utilisateur accepte
 
 // ---------- Assistant vehicule (premier lancement, ou bouton du garage) ----------
@@ -2687,16 +2725,27 @@ if(PREMIER && !IMPORT_HASH && !REGL.assistantVu) setTimeout(() => ASSISTANT.ouvr
 // au plus toutes les 10 minutes.
 const BUILD = document.querySelector('meta[name="fuelpilot-build"]')?.content || '';
 let derniereVerif = 0;
+// Le marqueur est dans les premiers 2 Ko de la page : on lit le flux jusqu'a lui et on
+// l'interrompt, au lieu de telecharger 1,4 Mo et de les analyser au DOMParser (mesure du
+// 30/10/2026 : 23 ms de calcul au demarrage, et toute la page re-telechargee a chaque ouverture).
+// Premiere verification 3 s apres le demarrage : elle ne concurrence plus le premier rendu.
 async function verifierVersion(){
   if(!/^https?:$/.test(location.protocol) || !BUILD) return;
   if(Date.now() - derniereVerif < 600000) return;
   derniereVerif = Date.now();
   try{
     const r = await fetch(location.pathname, {cache: 'no-cache'});
-    if(!r.ok) return;
-    const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
-    const enLigne = doc.querySelector('meta[name="fuelpilot-build"]')?.content;
-    if(enLigne && enLigne !== BUILD) montrerNouvelleVersion();
+    if(!r.ok || !r.body) return;
+    const lecteur = r.body.getReader(), dec = new TextDecoder();
+    let txt = '', m = null;
+    while(!m && txt.length < 65536){
+      const {value, done} = await lecteur.read();
+      if(value) txt += dec.decode(value, {stream: true});
+      m = txt.match(/<meta name="fuelpilot-build" content="([^"]*)"/);
+      if(done) break;
+    }
+    lecteur.cancel().catch(() => {});
+    if(m && m[1] !== BUILD) montrerNouvelleVersion();
   }catch(e){ /* hors ligne : on reessaiera au prochain retour sur l'onglet */ }
 }
 function montrerNouvelleVersion(){
@@ -2714,5 +2763,5 @@ function montrerNouvelleVersion(){
   d.append(t, b, x);
   document.body.appendChild(d);
 }
-verifierVersion();
+setTimeout(verifierVersion, 3000);
 document.addEventListener('visibilitychange', () => { if(!document.hidden) verifierVersion(); });
