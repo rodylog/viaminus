@@ -1,0 +1,15 @@
+{
+  "name": "viaminus-banc",
+  "private": true,
+  "description": "Banc de non-régression ViaMinus : enregistrement des réponses réseau hors cloud, rejeu en Chromium headless sans réseau (voir README.md).",
+  "license": "MIT",
+  "engines": {"node": ">=20"},
+  "scripts": {
+    "test": "node --test *.test.js",
+    "enregistre": "node enregistre.js",
+    "rejeu": "node rejeu.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}

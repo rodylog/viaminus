@@ -1,0 +1,12 @@
+[
+  {"slug": "montpellier-orleans", "depart": "Montpellier", "arrivee": "Orléans", "veh": "polo-e85"},
+  {"slug": "lodeve-orleans-80km", "depart": "Lodève", "arrivee": "Orléans", "veh": "polo-e85", "aBord": 80, "aBordUnite": "km"},
+  {"slug": "montpellier-paris-honda", "depart": "Montpellier", "arrivee": "Paris", "veh": "honda"},
+  {"slug": "paris-lyon-aller-retour", "depart": "Paris", "arrivee": "Lyon", "veh": "polo-e85", "allerRetour": true},
+  {"slug": "montpellier-toulouse-sans-peage-gazole", "depart": "Montpellier", "arrivee": "Toulouse", "veh": "gazole", "sansPeage": true},
+  {"slug": "lyon-marseille-sp-moins-cher", "depart": "Lyon", "arrivee": "Marseille", "veh": "spmin"},
+  {"slug": "bordeaux-nantes-e10-120km", "depart": "Bordeaux", "arrivee": "Nantes", "veh": "e10", "aBord": 120, "aBordUnite": "km"},
+  {"slug": "montpellier-aniane", "depart": "Montpellier", "arrivee": "Aniane", "veh": "polo-e85"},
+  {"slug": "strasbourg-lille-gazole", "depart": "Strasbourg", "arrivee": "Lille", "veh": "gazole"},
+  {"slug": "perpignan-bordeaux-gplc", "depart": "Perpignan", "arrivee": "Bordeaux", "veh": "gplc"}
+]
