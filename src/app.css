@@ -271,6 +271,30 @@
   .badge-pays{background:var(--card);color:var(--ink);box-shadow:inset 0 0 0 1px var(--muted);
               font-size:10.5px;letter-spacing:.06em;vertical-align:1px}
   .infos .ferme{color:var(--rouge);font-weight:600}
+  /* Signalements partages « pompe vide » (30/10/2026) : couleur ET texte, jamais la couleur seule ;
+     vert lisible sur fond sombre via --eco (vert-2 en clair). */
+  .badge-sig{display:inline-flex;align-items:center;gap:3px;background:var(--card);box-shadow:inset 0 0 0 1px currentColor;
+             font-weight:600;white-space:normal;line-height:1.3;vertical-align:1px}
+  .badge-sig.vide{color:var(--rouge)}
+  .badge-sig.dispo{color:var(--eco)}
+  .badge-sig .ico{width:13px;height:13px}
+  .fuels .sig-ligne{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-weight:400;padding:2px 0 4px}
+  .sig-lbl{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;line-height:1.3}
+  .sig-lbl.vide{color:var(--rouge)}
+  .sig-lbl.dispo{color:var(--eco)}
+  .sig-btns{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-left:auto}
+  .sig-btn{display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 10px;border:1px solid var(--line);
+           border-radius:var(--r3);background:var(--card);color:var(--ink);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
+  .sig-btn.vide{color:var(--rouge);border-color:color-mix(in srgb,var(--rouge) 45%,var(--line))}
+  .sig-btn.ok{color:var(--eco);border-color:color-mix(in srgb,var(--eco) 45%,var(--line))}
+  .sig-btn:hover:not(:disabled){background:rgba(127,127,127,.12)}
+  .sig-btn:disabled{opacity:.5;cursor:default}
+  .sig-attente{flex:1 1 100%;font-size:11.5px;color:var(--muted)}
+  .sig-msg{margin:8px 0 0;font-size:12.5px;line-height:1.45;color:var(--eco);font-weight:600}
+  .sig-msg.ko{color:var(--rouge)}
+  .heros-note{margin:6px 0 0;font-size:12.5px;line-height:1.4;color:var(--muted);display:flex;gap:6px;align-items:flex-start}
+  .heros-note.ko{color:var(--rouge);font-weight:500}
+  .heros-note .ico{flex:none;margin-top:2px}
   .lbl{background:#fff;border:1.5px solid #333;border-radius:var(--r3);padding:1px 6px;
        font:700 12.5px system-ui;color:#111;white-space:nowrap;text-align:center;
        box-shadow:0 1px 4px rgba(0,0,0,.28);cursor:pointer;font-variant-numeric:tabular-nums}
