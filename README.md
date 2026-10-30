@@ -125,7 +125,8 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
 - **Sécurité** : toute chaîne venue de l'extérieur (flux des stations, URL `#veh=`,
   `#trajet=`) est échappée à l'ingestion ou rendue en texte (jamais en HTML) ; Content-Security-Policy calculée à la génération
   (scripts autorisés par empreinte SHA-256, pas d'`unsafe-inline`, `connect-src`
-  borné aux trois API publiques). Rien ne s'exécute côté serveur : un fichier
+  borné aux trois API publiques, `worker-src 'self' blob:` et `manifest-src 'self'` pour le
+  service worker et le manifeste servis à côté). Rien ne s'exécute côté serveur : un fichier
   statique servi en https suffit.
 - **Lisibilité** : vert = le moins cher affiché (ex æquo compris), bleu = dans la
   norme, noir = repères du plan (étapes, départ, arrivée), rouge = les
@@ -176,6 +177,24 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   Type 2, élargir le couloir, réduire la réserve, partir à 100 %, revoir la batterie), jamais
   un écran vide. Il optimise le **temps**, pas l'euro (aucun prix au kWh dans les données
   ouvertes).
+- **Appli installable et hors-ligne** (30/10/2026) : servie en https, la page se propose à
+  l'installation (manifeste `pwa/manifest.webmanifest`, icônes goutte + éclair) et s'ouvre ensuite
+  comme une application, sans barre d'adresse. Un service worker (`pwa/sw.js`, règles dans
+  `src/pwa-strategie.js`) garde la **coquille** (la page, cache nommé d'après l'empreinte de
+  build, l'ancien purgé à l'activation), les **derniers prix vus** (réseau d'abord, repli sur la
+  dernière réponse en cache avec sa date : 50 réponses, 7 jours ; au-delà de 8 s sans réponse
+  du réseau, le cache sert aussi), les **bornes** déjà chargées (`data/irve/*.json`, cache
+  d'abord et rafraîchi en arrière-plan) et les prix espagnols (réseau d'abord, repli cache,
+  même province). Tuiles, style, glyphes, itinéraires et géocodage ne sont **jamais** mis en
+  cache (quota, fraîcheur). Hors ligne : bandeau discret « Hors ligne — prix du <date> », liste
+  et plan de pleins fonctionnent sur ces prix, l'itinéraire dit qu'il demande le réseau et la
+  carte qu'elle peut manquer. **Mise à jour** : quand un nouveau service worker est prêt, le
+  bandeau « Nouvelle version » propose de recharger — jamais de rechargement automatique.
+  Toute erreur du worker laisse la page fonctionner comme avant ; en `file://` rien ne change
+  (le `fuelpilot.html` téléchargé marche sans ces deux fonctions). Aucune donnée personnelle en
+  cache : jamais la position (le géocodage inverse n'est pas intercepté), jamais le garage ; les
+  réponses de prix sont indexées par l'emprise de la carte (un rectangle), pas par le point de
+  l'appareil.
 - **Interface** : la carte est l'écran, tout le reste flotte dessus — pilule de
   recherche, chip véhicule (garage), feuille glissante à trois crans sur mobile,
   panneau gauche de 400 px sur bureau ; fiche station, garage, options et aide
@@ -226,8 +245,12 @@ Le gabarit vit dans `src/` et `generate.py` l'assemble en un seul fichier :
 | `src/ui/feuilles.js` | feuille glissante à trois crans (mobile), feuilles modales, Échap, focus |
 | `src/ui/fond.js` | carte MapLibre : créée sans style, style IGN vectoriel posé une seule fois, transformation sombre, orthophoto, repli raster IGN puis OSM, WebGL absent |
 | `src/ui/assistant.js` | assistant véhicule en trois écrans (`creerAssistant(ctx)`), énergie thermique ou électrique |
-| `src/app.js` | données, rendu (`rendu()` aiguille vers `renduCarburant()` — stations, plan de pleins, inchangé — ou `renduElec()` — bornes, plan de charge), garage, itinéraire (aller-retour), partage, import par l'URL, position, menus, bornes (`chargerBornes`, `renduBornes`, `ouvrirBorne`) |
-| `src/plan.test.js`, `src/conso.test.js`, `src/irve.test.js`, `src/plan-elec.test.js`, `src/bornes.test.js`, `src/partage.test.js`, `src/es.test.js` | tests des modules purs |
+| `src/app.js` | données, rendu (`rendu()` aiguille vers `renduCarburant()` — stations, plan de pleins, inchangé — ou `renduElec()` — bornes, plan de charge), garage, itinéraire (aller-retour), partage, import par l'URL, position, menus, bornes (`chargerBornes`, `renduBornes`, `ouvrirBorne`), enregistrement du service worker et bandeaux hors ligne / nouvelle version |
+| `src/pwa-strategie.js` | règles du service worker à partir de l'URL seule : `decider` (coquille / prix / es / irve / reseau), `nomCacheCoquille`, `cachesAPurger`, `entreesAPurger` (limite, âge), `choisirRepli` (même famille de requête) ; pur, exporté pour Node |
+| `src/sw.js` | corps du service worker (install, activate, fetch, message « activer ») ; `pwa/sw.js` = `pwa-strategie.js` + `sw.js`, assemblé par `generate.py` |
+| `pwa/` | fichiers à servir **à côté de la page** : `manifest.webmanifest`, `icone-192.png`, `icone-512.png`, `icone-maskable-512.png` (générées une fois depuis `icone.svg` / `icone-maskable.svg` par `generer-icones.js`, commitées), `sw.js` |
+| `recette/pwa.js` | recette headless (Playwright) : http local, service worker, deuxième chargement depuis le cache, hors ligne, nouvelle version, `file://` ; captures dans `recette/captures/` |
+| `src/plan.test.js`, `src/conso.test.js`, `src/irve.test.js`, `src/plan-elec.test.js`, `src/bornes.test.js`, `src/partage.test.js`, `src/es.test.js`, `src/pwa-strategie.test.js` | tests des modules purs |
 | `irve_build.py`, `irve_build_test.py` | Base nationale des IRVE (CSV, 114 Mo) → `data/irve/<dep>.json` + `index.json`, bibliothèque standard seule ; tests `unittest` du département et de l'emprise |
 
 Les scripts sont assemblés dans l'ordre de `SCRIPTS` (`generate.py`) en un seul
@@ -235,6 +258,23 @@ Les scripts sont assemblés dans l'ordre de `SCRIPTS` (`generate.py`) en un seul
 
 ```bash
 node --test src/*.test.js   # modules purs (Node ≥ 20)
+```
+
+### Appli installable et hors-ligne (30/10/2026)
+
+`generate.py` écrit aussi `pwa/sw.js` (règles pures + corps du worker, un seul fichier ; le test
+`pwa-strategie.test.js` vérifie qu'il est à jour). Pour que l'installation et le hors-ligne
+fonctionnent, **copier `pwa/manifest.webmanifest`, `pwa/sw.js`, `pwa/icone-192.png`,
+`pwa/icone-512.png` et `pwa/icone-maskable-512.png` à côté de la page** (même dossier que
+`index.html`, servi en https) ; `data/irve/` reste à sa place. Sans ces fichiers, la page marche
+comme avant (le navigateur signale seulement un manifeste absent). La page enregistre
+`sw.js?v=<empreinte de build>&p=<nom de la page>` : chaque build publié est un nouveau worker,
+qui pré-charge la nouvelle page dans son propre cache ; le bandeau « Nouvelle version » apparaît
+quand il est prêt, « Recharger » le fait prendre la main.
+
+```bash
+node pwa/generer-icones.js                      # une fois : PNG depuis les SVG (Playwright)
+python3 generate.py --sans-snapshot --out /tmp/x.html && node recette/pwa.js /tmp/x.html   # recette headless
 ```
 
 Les bornes se chargent par `fetch` d'URL **relatives** (`data/irve/index.json`,
@@ -322,11 +362,17 @@ sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
   latitude 27–44, longitude −19–5) et comptées (« n sans position ignorées »). Le snapshot de
   repli embarqué reste français.
 - `file://` : Firefox y refuse la géolocalisation et cloisonne le stockage par
-  fichier — héberger en https règle les deux.
+  fichier — héberger en https règle les deux ; ni installation ni hors-ligne depuis un fichier
+  (service worker impossible), la page marche comme avant.
+- Hors ligne (page installée ou déjà ouverte en https) : les derniers prix vus et les bornes
+  déjà chargées, avec leur date ; pas de fond de carte, pas d'itinéraire, pas de géocodage
+  (jamais mis en cache). Prix gardés 7 jours (50 réponses), bornes 60 jours (40 fichiers).
+  Quota de stockage réel et installation sur un vrai Android non vérifiés ici.
 - 400 éléments affichés par zone au maximum, stations et bornes confondues (annoncé à
   l'écran quand ça tronque) ; bornes : 4 départements à la fois au plus en vue libre.
 - Bornes de recharge : données **statiques** (pas de disponibilité en temps réel, pas de prix
-  au kWh), indisponibles en `file://` et hors ligne (fichiers servis à côté de la page) ; les
+  au kWh), indisponibles en `file://` (fichiers servis à côté de la page) et, hors ligne, seuls
+  les départements déjà chargés restent disponibles ; les
   consommations électriques pré-remplies sont des ordres de grandeur, pas des médianes mesurées.
 - Plan de charge électrique : il optimise le **temps de charge**, pas l'euro (pas de prix au
   kWh dans les données ouvertes) — pas de « Faire un détour pour payer moins ? » pour
