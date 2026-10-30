@@ -26,6 +26,9 @@ function poserCran(c){
   panneau.style.height = '';
   poignee.setAttribute('aria-expanded', String(c !== 'apercu'));
   poignee.setAttribute('aria-label', c === 'plein' ? 'Replier le panneau' : 'Déplier le panneau');
+  // Panneau en plein (mobile) : il recouvre les boutons de la carte ; on les retire du flux
+  // (visibility) plutot que de laisser un focus clavier atterrir derriere le panneau (2.4.11).
+  document.documentElement.classList.toggle('panneau-plein', MOBILE.matches && c === 'plein');
   // Replie : le corps ne defile pas (sinon un geste de defilement commence hors ecran).
   document.getElementById('corps').style.overflowY = c === 'apercu' ? 'hidden' : '';
 }
