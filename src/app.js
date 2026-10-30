@@ -222,7 +222,7 @@ const dist = (la,lo) => {
 // (feuille non chargee, style calcule vide).
 const jeton = (nom, repli) =>
   getComputedStyle(document.documentElement).getPropertyValue(nom).trim() || repli;
-const VERT = jeton('--vert', '#158a3f'), BLEU = jeton('--bleu', '#0b57d0'),
+const VERT = jeton('--vert', '#137a37'), BLEU = jeton('--bleu', '#0b57d0'),
       ROUGE = jeton('--rouge', '#c02626');
 function couleur(p, b, mini){
   if(mini != null && p <= mini + 1e-9) return VERT;    // le moins cher, ex aequo compris
