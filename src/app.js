@@ -69,6 +69,11 @@ function reglagesEcrits(){
   v.cuve  = $('cuve').value;
   v.autonomie = $('autonomie').value;
   v.reserve = $('reserve').value;
+  // Vehicule electrique (phase 2) : les champs de la fiche electrique, lus tels quels (texte).
+  v.energie = $('venergie').value === 'elec' ? 'elec' : 'thermique';
+  v.batterieKwh = $('vbatt').value; v.consoKwh100 = $('vconsoKwh').value;
+  v.kwMaxDC = $('vkwdc').value; v.kwMaxAC = $('vkwac').value; v.prise = $('vprise').value;
+  v.reservePct = $('vreservePct').value; v.departPct = $('vdepartPct').value;
   REGL.sansCher = $('sansCher').checked;
   REGL.couloir  = $('couloir').value;
   REGL.queUtiles = $('queUtiles').checked;
@@ -93,8 +98,23 @@ function appliquerVeh(){
   $('autonomie').value = v.autonomie || '';
   $('reserve').value = v.reserve || '';
   $('vnom').value = v.nom;
+  $('venergie').value = v.energie === 'elec' ? 'elec' : 'thermique';
+  $('vbatt').value = v.batterieKwh || ''; $('vconsoKwh').value = v.consoKwh100 || '';
+  $('vkwdc').value = v.kwMaxDC || ''; $('vkwac').value = v.kwMaxAC || '';
+  $('vprise').value = ['ccs', 'chademo', 't2'].includes(v.prise) ? v.prise : 'ccs';
+  $('vreservePct').value = v.reservePct || ''; $('vdepartPct').value = v.departPct || '';
+  $('consoSourceElec').hidden = true;
+  document.querySelectorAll('#ficheElec .chips-kw').forEach(g => g.dispatchEvent(new Event('maj')));
+  majEnergie();
   majEstimations();
   majChip();
+}
+// Fiche du garage : bloc thermique (carburants, L/100, reservoir) ou bloc electrique (batterie,
+// kWh/100, kW, prise), selon l'energie choisie.
+function majEnergie(){
+  const elec = $('venergie').value === 'elec';
+  $('ficheElec').hidden = !elec;
+  $('ficheThermique').hidden = elec;
 }
 // Autonomie d'un plein et reservoir se deduisent l'un de l'autre par la conso : chaque
 // champ affiche en grise ce qu'il vaudrait d'apres l'autre, ce qui montre tout de suite
@@ -120,10 +140,19 @@ function majChip(){
   const v = REGL.vehicules[REGL.vehActif];
   $('chipIco').innerHTML = ico(TYPES[v.type] ? v.type : 'voiture');
   $('chipNom').textContent = v.nom;
-  const c = (v.carbs || []).map(k => k === 'spmin' ? 'SP le - cher' : (COURT[k] || k));
+  const elec = v.energie === 'elec';
+  const c = elec ? [`électrique${+v.batterieKwh > 0 ? ` · ${String(v.batterieKwh).replace('.', ',')} kWh` : ''} · ${LIBELLE_PRISE[v.prise] || 'CCS'}`]
+                 : (v.carbs || []).map(k => k === 'spmin' ? 'SP le - cher' : (COURT[k] || k));
   $('chipCarb').textContent = c.length ? c.join(' + ') : 'aucun carburant';
   $('chipVeh').setAttribute('aria-label', `Garage — ${v.nom}, ${c.join(' + ') || 'aucun carburant'}`);
+  // Formulaire du trajet : « Réservoir au départ » n'a pas de sens pour une batterie (l'etat de
+  // charge au depart se regle dans le plan de charge) ; l'option « bornes » n'a d'effet qu'en thermique.
+  $('aBordLbl').hidden = elec;
+  $('bornesVisibles').disabled = elec;
+  $('bornesVisiblesNote').textContent = elec ? 'véhicule électrique : les bornes remplacent les stations, l\'option ne s\'applique qu\'aux véhicules thermiques du garage'
+                                             : 'en plus des stations, pour un véhicule thermique (toujours affichées pour un véhicule électrique)';
 }
+const LIBELLE_PRISE = {ccs: 'CCS', chademo: 'CHAdeMO', t2: 'Type 2'};
 const coches = REGL.vehicules[REGL.vehActif].carbs;
 $('carbs').innerHTML = CASES.map(([k,l]) =>
   `<label class="case"><input type="checkbox" value="${k}"`+
@@ -384,7 +413,9 @@ function emprise(){
 const dansEmprise = (b, la, lo) => la >= b.s && la <= b.n && lo >= b.w && lo <= b.e;
 
 // ---------- Rendu : marqueurs, liste en cartes, bloc plan ----------
-function rendu(){
+// renduCarburant() : le rendu historique (stations, plan de pleins), INCHANGE par la phase 2 ;
+// rendu() (plus bas, bloc « Bornes de recharge ») aiguille vers lui ou vers renduElec().
+function renduCarburant(){
   const sel = choix();
   const liste = $('liste');
   MARQUEURS.forEach(m => m.remove()); MARQUEURS = [];
@@ -1141,6 +1172,31 @@ $('vehMoins').onclick = () => {
 };
 $('vtype').onchange = () => { majCats(); reglagesEcrits(); };
 $('vcat').onchange = () => { reglagesEcrits(); };
+// Energie : bascule de la fiche ; les stations ou les bornes se rechargent (garage mixte : une
+// voiture E85 et une electrique basculent selon le vehicule actif).
+$('venergie').onchange = () => { majEnergie(); reglagesEcrits(); charger(); };
+['vbatt', 'vconsoKwh', 'vkwdc', 'vkwac', 'vprise', 'vreservePct', 'vdepartPct'].forEach(id => $(id).onchange = () => { reglagesEcrits(); rendu(); });
+$('vehEstimerElec').onclick = () => {
+  const r = estimerConsoElec($('vtype').value, $('vcat').value);
+  const src = $('consoSourceElec');
+  src.hidden = false;
+  if(!r){ src.textContent = 'Pas d\'ordre de grandeur pour ce type — saisissez la conso que votre voiture affiche.'; return; }
+  $('vconsoKwh').value = r.conso;
+  src.textContent = `≈ ${String(r.conso).replace('.', ',')} kWh/100 — ${r.source}. Modifiable.`;
+  reglagesEcrits(); rendu();
+};
+// Chips de puissance (garage et assistant) : un toucher regle le champ voisin ; « autre » y mene.
+document.querySelectorAll('.chips-kw').forEach(g => {
+  const inp = $(g.dataset.cible);
+  const maj = () => g.querySelectorAll('[data-kw]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.kw !== 'autre' && inp.value !== '' && +b.dataset.kw === +inp.value)));
+  g.querySelectorAll('[data-kw]').forEach(b => b.onclick = () => {
+    if(b.dataset.kw === 'autre'){ inp.focus(); inp.select(); return; }
+    inp.value = b.dataset.kw; maj(); inp.dispatchEvent(new Event('change'));
+  });
+  inp.addEventListener('input', maj);
+  g.addEventListener('maj', maj);
+  maj();
+});
 // Estimer la conso d'apres le type, la categorie et le premier carburant coche (src/conso.js).
 $('vehEstimer').onclick = () => {
   const carb = choix()[0];
@@ -1159,8 +1215,9 @@ $('vehEstimer').onclick = () => {
 // Partage : lien d'import de la fiche (#veh=…) ou du plan (#trajet=…&veh=…). Partage natif
 // (navigator.share) quand il existe, sinon copie dans le presse-papiers et « Lien copié ».
 const lienBase = () => location.href.split('#')[0];
-const vehParam = v => [encodeURIComponent(v.nom), (v.carbs || []).join('+'), encodeURIComponent(v.conso || ''),
-  encodeURIComponent(v.cuve || ''), encodeURIComponent(v.reserve || ''), encodeURIComponent(v.autonomie || '')].join('|');
+// Format du lien : src/partage.js (historique Nom|carburants|conso|cuve|reserve|autonomie, plus un
+// 7e champ E… pour un vehicule electrique ; un lien ancien reste lu).
+const vehParam = v => vehVersParam(v);
 async function partagerLien(url, texte, elMsg){
   if(navigator.share){
     try{ await navigator.share({title: 'ViaMinus', text: texte, url}); return; }
@@ -1183,7 +1240,9 @@ $('partagerPlan').onclick = () => {
 };
 
 // Import par l'URL — sert aussi a PARTAGER :
-//   #veh=Nom|e85+e10|conso|cuve|reserve[|autonomie]   fiche vehicule (format inchange)
+//   #veh=Nom|e85+e10|conso|cuve|reserve[|autonomie][|E…]   fiche vehicule (format historique inchange ;
+//       7e champ E<batterie>,<kWh/100>,<kW DC>,<kW AC>,<prise>,<reserve %>,<depart %> pour un
+//       vehicule electrique — lecture et ecriture dans src/partage.js)
 //   #trajet=<depart>|<arrivee>|<couloir>|<options>    plan (depart vide = « Ma position »,
 //       JAMAIS une coordonnee ; couloir 1/2/5/10/20 ; options = lettres p (sans peage),
 //       r (aller-retour)) ; peut etre suivi de &veh=… : la fiche est traitee AVANT le trajet,
@@ -1205,13 +1264,9 @@ let IMPORT_HASH = false, TRAJET_IMPORT = null;
     const mp = parts.pos.match(/^(-?[0-9.]+),(-?[0-9.]+)$/);
     if(mp && coordsValides(+mp[1], +mp[2])){ setTimeout(() => situer(+mp[1], +mp[2], 'Point de repère'), 0); lu = true; }
   }
-  const m = parts.veh && parts.veh.match(/^([^|]+)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)(?:\|([^|]*))?$/);
-  if(m){
-    const nom = dec(m[1]);
-    const v = {nom, type: 'voiture',
-      carbs: m[2] ? dec(m[2]).split('+') : DEFAUT.slice(),
-      conso: dec(m[3]), cuve: dec(m[4]),
-      reserve: dec(m[5]), autonomie: m[6] ? dec(m[6]) : ''};
+  const v = parts.veh ? paramVersVeh(parts.veh, DEFAUT) : null;
+  if(v){
+    const nom = v.nom;
     const i = REGL.vehicules.findIndex(x => x.nom === nom);
     if(i >= 0) REGL.vehicules[i] = Object.assign({type: REGL.vehicules[i].type, cat: REGL.vehicules[i].cat}, v); else REGL.vehicules.push(v);
     REGL.vehActif = i >= 0 ? i : REGL.vehicules.length - 1;
@@ -1329,6 +1384,15 @@ function emprisesTrace(margeKm){
 
 async function charger(){
   const mien = ++seq;
+  if(estElec()){
+    // Vehicule electrique (phase 2) : aucun prix carburant a charger, les bornes remplacent les
+    // stations (chargerBornes, par departement) ; la liste et le plan se redessinent a leur arrivee.
+    DATA = []; RUPTURES = []; tronque = 0;
+    etatPrix = IRVE_ETAT === 'indisponible' ? '<span class="ko">bornes indisponibles hors ligne</span>' : 'bornes de recharge · Base nationale des IRVE';
+    rendu();
+    chargerBornes();
+    return;
+  }
   // Hors itineraire : l'emprise de l'ecran (validee, voir emprise()). En itineraire :
   // une suite d'emprises courtes le long du trace, pour ne rien manquer sur un long trajet.
   const zones = ROUTE ? emprisesTrace(20)   // toujours le couloir maxi : la largeur
@@ -1373,6 +1437,7 @@ async function charger(){
     etatPrix = '<span class="ko">hors ligne</span> — relevé du ' + SNAP_DATE;
   }
   rendu();
+  chargerBornes();   // vehicule thermique : seulement si l'option « Afficher les bornes » est cochee
 }
 
 if(map){
@@ -1572,12 +1637,8 @@ async function geocoder(q){
 // l'erreur est negligeable devant la largeur du couloir).
 let KMS = null;   // abscisse cumulee (km) de chaque point du trace
 function preparerKms(){
-  KMS = [0];
-  for(let i=1; i<ROUTE.length; i++){
-    const [lo1,la1] = ROUTE[i-1], [lo2,la2] = ROUTE[i];
-    const kx = 111.32*Math.cos(la1*Math.PI/180);
-    KMS.push(KMS[i-1] + Math.hypot((lo2-lo1)*kx, (la2-la1)*110.57));
-  }
+  KMS = kmsCumules(ROUTE);   // irve.js : meme approximation plane (111,32 km x cos(lat) / 110,57 km)
+  ROUTE_N++;                  // les bornes en cache se resituent sur ce nouveau trace (voir renduElec)
 }
 
 // Positions d'une station le long du trace : ecart (km) et abscisse (km depuis le depart),
@@ -1853,7 +1914,7 @@ function demanderABord(){
   const cle = `${$('depart').value.trim()}|${$('arrivee').value.trim()}`;
   if(TRAJET_SANS_GESTE || $('aBord').value.trim() !== '' || ABORD_DEMANDE === cle) return false;
   const v = REGL.vehicules[REGL.vehActif];
-  if(!v || !autonomieUtile(+v.conso, +v.cuve, +v.autonomie, 0)) return false;
+  if(!v || estElec(v) || !autonomieUtile(+v.conso, +v.cuve, +v.autonomie, 0)) return false;
   ABORD_DEMANDE = cle; ABORD_REPONDU = false;
   $('aBordQkm').value = ''; $('aBordQu').value = $('aBordUnite').value;
   ouvrirFeuille('aBordQ', $('trajet').querySelector('[type=submit]'));
@@ -1967,6 +2028,453 @@ $('options').onclick = () => ouvrirFeuille('menuOptions', $('options'));
 $('aideBtn').onclick = () => ouvrirFeuille('aide', $('aideBtn'));
 $('optAide').onclick = () => ouvrirFeuille('aide', $('options'));
 
+// ---------- Bornes de recharge et vehicule electrique (phase 2, 30/10/2026) ----------
+// L'electricite est traitee « comme un carburant » : pour un vehicule electrique, les bornes
+// publiques (Base nationale des IRVE, data/irve/<dep>.json servis A COTE de la page, charges par
+// departement d'apres index.json) remplacent les stations, et le plan de charge
+// (optimiserPlanElectrique, plan.js) remplace le plan de pleins. Pour un vehicule thermique,
+// l'option « Afficher les bornes électriques » les ajoute a la carte sans toucher au plan de
+// pleins : renduCarburant() reste tel quel, renduBornes() dessine par-dessus.
+const vehActif = () => REGL.vehicules[REGL.vehActif];
+const estElec = v => ((v || vehActif()) || {}).energie === 'elec';
+// Fiche du garage (texte) -> vehicule au format de plan.js / irve.js (nombres, defauts du brief :
+// prise CCS, reserve 15 %, depart 80 %).
+function vehElec(v){
+  v = v || vehActif();
+  const pct = (x, d) => x === '' || x == null || !Number.isFinite(+x) ? d : Math.max(0, Math.min(100, +x));
+  return {batterieKwh: +v.batterieKwh || 0, consoKwh100: +v.consoKwh100 || 0, kwMaxDC: +v.kwMaxDC || 0, kwMaxAC: +v.kwMaxAC || 0,
+          prise: ['ccs', 'chademo', 't2'].includes(v.prise) ? v.prise : 'ccs',
+          reservePct: pct(v.reservePct, 15), departPct: pct(v.departPct, 80)};
+}
+// Filtres des bornes (puissance minimale, gratuit, carte bancaire, ouvert maintenant), memorises.
+const BF = Object.assign({kwMin: 0, gratuit: false, cb: false, ouvert: false}, REGL.bornesFiltres || {});
+$('bKwMin').value = ['0', '7', '22', '50', '150'].includes(String(BF.kwMin)) ? String(BF.kwMin) : '0';
+$('bGratuit').checked = !!BF.gratuit; $('bCb').checked = !!BF.cb; $('bOuvert').checked = !!BF.ouvert;
+['bKwMin', 'bGratuit', 'bCb', 'bOuvert'].forEach(id => $(id).onchange = () => {
+  BF.kwMin = +$('bKwMin').value || 0; BF.gratuit = $('bGratuit').checked; BF.cb = $('bCb').checked; BF.ouvert = $('bOuvert').checked;
+  REGL.bornesFiltres = BF; reglagesBruts(); rendu();
+});
+const critBornes = () => ({kwMin: BF.kwMin, gratuit: BF.gratuit || null, cb: BF.cb || null, ouvertLe: BF.ouvert ? new Date() : null});
+// Option (vehicule thermique) : bornes en plus des stations ; sans effet en electrique (toujours la).
+$('bornesVisibles').checked = !!REGL.bornesVisibles;
+$('bornesVisibles').onchange = () => { REGL.bornesVisibles = $('bornesVisibles').checked; reglagesBruts(); charger(); };
+const bornesVoulues = () => estElec() || !!REGL.bornesVisibles;
+
+// ---- Chargement par departement ----
+// index.json donne la bbox de chaque departement : on charge ceux qui croisent l'emprise (4 au
+// plus pour la vue libre, sinon « zoomez ») ; pour un trajet, tous ceux que croise le couloir
+// (lots de 4 requetes). Cache en memoire par departement ; un compteur (seqB) abandonne les
+// reponses d'une emprise devenue obsolete, comme pour les stations. URL RELATIVES ('self') : en
+// file:// ou si index.json est injoignable, message discret « bornes indisponibles hors ligne ».
+const URL_IRVE = 'data/irve/';
+const MAX_DEPS_VUE = 4, LOT_DEPS = 4, DELAI_IRVE = 20000;
+let IRVE_INDEX = null, IRVE_INDEX_P = null, IRVE_ETAT = 'inconnu';   // 'ok' | 'indisponible'
+const IRVE_CACHE = new Map();   // dep -> Promise<bornes[]>
+let BORNES = [], BORNES_MSG = '', BORNES_DEPS = [], seqB = 0, BORNES_CHARGEMENT = false;
+function lireIndexIrve(){
+  if(IRVE_INDEX) return Promise.resolve(IRVE_INDEX);
+  if(!/^https?:$/.test(location.protocol)){ IRVE_ETAT = 'indisponible'; return Promise.resolve(null); }
+  if(!IRVE_INDEX_P) IRVE_INDEX_P = fetch(URL_IRVE + 'index.json', {signal: AbortSignal.timeout(DELAI_IRVE)})
+    .then(r => { if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(j => { if(!j || !j.departements || typeof j.departements !== 'object') throw new Error('index illisible'); IRVE_INDEX = j; IRVE_ETAT = 'ok'; return j; })
+    .catch(() => { IRVE_ETAT = 'indisponible'; IRVE_INDEX_P = null; return null; });
+  return IRVE_INDEX_P;
+}
+// Une borne du fichier -> objet de la page : coordonnees verifiees, chaines echappees a
+// l'ingestion (comme les stations), champs la/lo/ville pour « Y aller » et le couloir.
+function normaliserBorne(b, dep){
+  if(!b || typeof b !== 'object' || !coordsValides(+b.lat, +b.lon)) return null;
+  const bool = x => x === true ? true : x === false ? false : null;
+  const num = x => Number.isFinite(+x) && +x > 0 ? +x : null;
+  const n = esc(String(b.n || '').slice(0, 160)) || 'Borne de recharge';
+  return {id: esc(String(b.id || `${b.lon},${b.lat}`).slice(0, 80)), dep, n, ville: n,
+          op: esc(String(b.op || '').slice(0, 80)), la: +b.lat, lo: +b.lon, lat: +b.lat, lon: +b.lon,
+          pdc: Math.max(1, Math.round(+b.pdc) || 1), kw: num(b.kw), kwmin: num(b.kwmin),
+          ac: bool(b.ac), ccs: bool(b.ccs), chademo: bool(b.chademo), gratuit: bool(b.gratuit), cb: bool(b.cb), acte: bool(b.acte),
+          h: b.h == null ? null : esc(String(b.h).slice(0, 200)), pmr: bool(b.pmr),
+          acces: b.acces === 'libre' || b.acces === 'reserve' ? b.acces : null,
+          maj: /^\d{4}-\d{2}-\d{2}/.test(String(b.maj || '')) ? String(b.maj).slice(0, 10) : null, ecart: null, kmr: null, occ: [], tr: -1};
+}
+function chargerDep(dep){
+  if(!IRVE_CACHE.has(dep)){
+    const p = fetch(`${URL_IRVE}${encodeURIComponent(dep)}.json`, {signal: AbortSignal.timeout(DELAI_IRVE)})
+      .then(r => { if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(l => Array.isArray(l) ? l.map(b => normaliserBorne(b, dep)).filter(Boolean) : [])
+      .catch(e => { IRVE_CACHE.delete(dep); throw e; });   // on reessaiera au prochain deplacement
+    IRVE_CACHE.set(dep, p);
+  }
+  return IRVE_CACHE.get(dep);
+}
+async function chargerDeps(deps, mien){
+  const res = [];
+  for(let i = 0; i < deps.length; i += LOT_DEPS){
+    const lot = await Promise.all(deps.slice(i, i + LOT_DEPS).map(d => chargerDep(d).catch(() => [])));
+    if(mien !== seqB) return null;
+    lot.forEach(l => res.push(...l));
+  }
+  return res;
+}
+async function chargerBornes(){
+  const mien = ++seqB;
+  if(!bornesVoulues()){ BORNES = []; BORNES_MSG = ''; BORNES_CHARGEMENT = false; return; }
+  BORNES_CHARGEMENT = true;
+  const index = await lireIndexIrve();
+  if(mien !== seqB) return;
+  BORNES_CHARGEMENT = false;
+  if(!index){
+    BORNES = []; BORNES_DEPS = []; BORNES_MSG = 'bornes indisponibles hors ligne';
+    if(estElec()){ etatPrix = '<span class="ko">bornes indisponibles hors ligne</span>'; }
+    rendu(); return;
+  }
+  if(estElec()) etatPrix = 'bornes de recharge · base IRVE' + (/^\d{4}-\d{2}-\d{2}$/.test(index.genere) ? ` du ${index.genere.slice(8, 10)}/${index.genere.slice(5, 7)}/${index.genere.slice(0, 4)}` : '');
+  const zones = ROUTE ? emprisesTrace(20) : [emprise()];
+  const deps = [...new Set(zones.flatMap(z => departementsPourEmprise(index, z)))].sort();
+  if(!ROUTE && deps.length > MAX_DEPS_VUE){
+    BORNES = []; BORNES_DEPS = [];
+    BORNES_MSG = `zoomez pour voir les bornes (${deps.length} départements dans la zone affichée, ${MAX_DEPS_VUE} au plus à la fois)`;
+    rendu(); return;
+  }
+  if(!deps.length){ BORNES = []; BORNES_DEPS = []; BORNES_MSG = ''; rendu(); return; }
+  BORNES_CHARGEMENT = true;
+  const l = await chargerDeps(deps, mien);
+  if(l === null || mien !== seqB) return;
+  BORNES_CHARGEMENT = false;
+  BORNES_DEPS = deps;
+  BORNES = ROUTE ? l.filter(situerBorne) : l;
+  BORNES_MSG = '';
+  rendu();
+}
+// Position d'une borne sur le trace courant (ecart, km, occurrences aller/retour), recalculee a
+// chaque nouveau trace (ROUTE_N) : les objets viennent du cache, partage entre trajets.
+let ROUTE_N = 0;
+function situerBorne(b){
+  if(!ROUTE){ b.ecart = null; b.kmr = null; b.occ = []; return false; }
+  if(b.tr !== ROUTE_N){ situerSurTrace(b); b.tr = ROUTE_N; }
+  return b.occ.length > 0;
+}
+
+// ---- Rendu : aiguillage, bornes, fiche borne ----
+// rendu() est appele partout ou l'etait l'ancien rendu : vehicule electrique -> renduElec()
+// (bornes + plan de charge) ; thermique -> renduCarburant() tel quel, puis les bornes si demandees.
+let PLAN_ICO = 'pompe';
+function rendu(){
+  const elec = estElec();
+  if(PLAN_ICO !== (elec ? 'eclair' : 'pompe')){ PLAN_ICO = elec ? 'eclair' : 'pompe'; $('planIco').innerHTML = ico(PLAN_ICO); }
+  if(elec){ renduElec(); return; }
+  $('secStations').hidden = false;
+  renduCarburant();
+  renduBornes(false, null);
+}
+// Construction DOM (textContent, jamais innerHTML sur une chaine externe).
+const mk = (tag, cls, ...enfants) => {
+  const e = document.createElement(tag);
+  if(cls) e.className = cls;
+  for(const c of enfants){ if(c == null || c === false) continue; e.append(c.nodeType ? c : String(c)); }
+  return e;
+};
+const mkSvg = nom => { const t = document.createElement('template'); t.innerHTML = ico(nom); return t.content.firstChild; };
+const mkBtn = (cls, libelle, action, icone) => {
+  const b = mk('button', cls, icone ? mkSvg(icone) : null, icone ? ' ' : null, libelle);
+  b.type = 'button'; b.onclick = action; return b;
+};
+const virgule = x => String(x).replace('.', ',');
+const pctTxt = p => `${virgule(Math.round(p * 10) / 10)} %`;
+
+let MARQUEURS_B = [], LISTE_BORNES = [], triB = 'dist';
+// Bornes a montrer : filtres de l'utilisateur, prise du vehicule (electrique), couloir et zone affichee.
+function bornesAffichables(elec){
+  let l = filtrerBornes(BORNES, critBornes());
+  if(elec){ const prise = vehElec().prise; l = l.filter(b => branchable(b, prise)); }
+  const vue = emprise();
+  if(ROUTE){ const large = +$('couloir').value; l = l.filter(b => situerBorne(b) && b.ecart <= large && dansEmprise(vue, b.la, b.lo)); }
+  else l = l.filter(b => dansEmprise(vue, b.la, b.lo));
+  return l;
+}
+const kwCourt = kw => kw > 0 ? (kw >= 20 ? String(Math.round(kw)) : virgule(Math.round(kw * 10) / 10)) : '?';
+// renduBornes(elec, etapes) : marqueurs (eclair, couleur par puissance), liste en cartes, compteur,
+// plafond PLAFOND partage avec les stations ; etapes = Map borne -> [n° d'arret] (plan de charge).
+function renduBornes(elec, etapes){
+  MARQUEURS_B.forEach(m => m.remove()); MARQUEURS_B = [];
+  const sec = $('secBornes'), liste = $('listeBornes');
+  const voulues = bornesVoulues();
+  sec.hidden = !voulues;
+  if(!voulues){ LISTE_BORNES = []; return; }
+  const l = bornesAffichables(elec);
+  l.forEach(b => { b.d = dist(b.la, b.lo); });
+  const nStations = elec ? 0 : LISTE_COURANTE.length;
+  const place = Math.max(0, PLAFOND - nStations);
+  const ordre = (a, b) => triB === 'kw' ? ((b.kw || 0) - (a.kw || 0)) || (a.d - b.d)
+                                        : ((ROUTE ? a.kmr - b.kmr : a.d - b.d) || ((b.kw || 0) - (a.kw || 0)));
+  let tri = [...l].sort(ordre);
+  // Les arrets du plan restent visibles meme hors de la zone ou des filtres (le plan y passe) ;
+  // « Seulement les arrêts du plan » ne garde qu'eux.
+  if(etapes && etapes.size){
+    const dedans = new Set(tri);
+    etapes.forEach((n, b) => { if(!dedans.has(b)){ b.d = dist(b.la, b.lo); tri.push(b); } });
+    tri.sort(ordre);
+    if($('queUtiles').checked) tri = tri.filter(b => etapes.has(b));
+  }
+  const tronqB = Math.max(0, tri.length - place);
+  const affichees = tri.slice(0, place);
+  const n = affichees.length;
+  const compte = `${n} borne${n > 1 ? 's' : ''} ${ROUTE ? 'sur le trajet, dans la zone affichée' : 'dans la zone affichée'}` +
+    (BORNES_DEPS.length ? ` (${BORNES_DEPS.length > 1 ? 'départements' : 'département'} ${BORNES_DEPS.join(', ')})` : '') +
+    (elec ? ' · prises compatibles' : '') +
+    (tronqB ? ` · ${tronqB} de plus non affichée${tronqB > 1 ? 's' : ''} (plafond ${PLAFOND} stations et bornes)` : '');
+  $('compteBornes').textContent = compte;
+  if(elec){ $('compte').textContent = compte; $('titreStations').textContent = ''; majEtat(); }
+  $('thDistB').textContent = ROUTE ? 'Km du trajet' : 'Distance';
+  const msg = $('bornesMsg');
+  const filtres = BF.kwMin > 0 || BF.gratuit || BF.cb || BF.ouvert;
+  const texteMsg = BORNES_MSG || (n ? '' : BORNES.length
+    ? (ROUTE ? `Aucune borne du trajet${filtres ? ' ne passe les filtres' : ''} dans la zone affichée — dézoomez, acceptez un détour plus grand${filtres ? ', baissez la puissance minimale ou décochez un filtre' : ''}.`
+             : `Aucune borne${filtres ? ' ne passe les filtres' : ''} dans la zone affichée — déplacez la carte ou dézoomez${filtres ? ', baissez la puissance minimale ou décochez un filtre' : ''}.`)
+    : (IRVE_ETAT === 'indisponible' ? 'bornes indisponibles hors ligne' : BORNES_CHARGEMENT ? 'chargement des bornes…'
+       : ROUTE ? 'Aucune borne connue le long de ce trajet dans la Base nationale des IRVE.' : 'Aucune borne connue dans la zone affichée.'));
+  msg.hidden = !texteMsg; msg.textContent = texteMsg;
+  // Marqueurs : les moins puissantes d'abord, les rapides restent dessus ; vue large : pastille seule.
+  const compact = CARTE && map && map.getZoom() < 10;
+  if(CARTE) [...affichees].sort((a, b) => (a.kw || 0) - (b.kw || 0)).forEach(b => {
+    const cls = classePuissance(b.kw);
+    const el = document.createElement('button');
+    el.type = 'button'; el.className = 'marqueur marqueur-b'; el.tabIndex = -1; el.dataset.id = b.id;
+    el.setAttribute('aria-label', `${brut(b.n)} — ${libellePuissance(b.kw)}`);
+    el.innerHTML = `<div class="lbl-b ${cls}${compact ? ' pastille' : ''}">${ico('eclair')}${compact ? '' : kwCourt(b.kw)}</div>`;
+    el.addEventListener('click', e => { e.stopPropagation(); ouvrirBorne(b, el); });
+    MARQUEURS_B.push(CARTE.marqueur(b.la, b.lo, el));
+  });
+  // Arrets numerotes du plan de charge, au-dessus des bornes.
+  if(CARTE && etapes) etapes.forEach((nums, b) => {
+    const e = document.createElement('div');
+    e.className = 'etape-num'; e.textContent = nums.join('·'); e.title = `Arrêt ${nums.join(' et ')} — ${brut(b.n)}`;
+    MARQUEURS_B.push(CARTE.marqueur(b.la, b.lo, e));
+  });
+  // Liste en cartes (DOM : les noms et horaires viennent du fichier IRVE).
+  liste.replaceChildren(...affichees.map((b, i) => {
+    const cls = classePuissance(b.kw), maj = libelleMaj(b.maj, new Date());
+    const et = etapes && etapes.get(b);
+    const li = mk('li');
+    const bt = mk('button', 'carte carte-b' + (et ? ' etape' : ''));
+    bt.type = 'button'; bt.setAttribute('aria-haspopup', 'dialog'); bt.dataset.id = b.id; bt.dataset.i = i;
+    const ville = mk('span', 'ville');
+    if(et){ const badge = mk('span', 'badge', mkSvg('eclair'), ` Arrêt${et.length > 1 ? 's' : ''} ${et.join(' · ')}`); ville.append(badge, ' '); }
+    ville.append(brut(b.n));
+    const prix = mk('span', 'prix', mk('span', 'kw ' + cls, mkSvg('eclair'), ' ', libellePuissance(b.kw)),
+                    b.pdc > 1 ? mk('span', 'cp', `${b.pdc} points`) : null);
+    const adr = mk('span', 'adr', [b.op ? brut(b.op) : null, libellePrises(b), libellePaiement(b)].filter(Boolean).join(' · '));
+    const meta = mk('span', 'meta', mk('span', null, ROUTE ? `${b.ecart.toFixed(1)} km du trajet` : `${b.d.toFixed(1)} km`),
+                    ROUTE && b.kmr != null ? mk('span', null, `km ${Math.round(b.kmr)}`) : null,
+                    mk('span', null, libelleHoraires(b.h)), mk('span', maj.ancien ? 'ancien' : null, maj.ancien ? 'donnée ancienne' : maj.txt));
+    bt.append(ville, prix, adr, meta);
+    bt.addEventListener('click', () => {
+      if(CARTE) CARTE.aller([b.la, b.lo], Math.max(map.getZoom(), 14), true, MOBILE.matches ? [0, -Math.round(panneau.offsetHeight / 2)] : [0, 0]);
+      ouvrirBorne(b, bt);
+    });
+    li.append(bt);
+    return li;
+  }));
+  LISTE_BORNES = affichees;
+}
+document.querySelectorAll('.tri button[data-kb]').forEach(b => {
+  b.onclick = () => {
+    triB = b.dataset.kb;
+    document.querySelectorAll('.tri button[data-kb]').forEach(o => o.setAttribute('aria-pressed', String(o === b)));
+    rendu();
+  };
+});
+$('listeBornes').addEventListener('keydown', e => {
+  if(e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const cartes = [...$('listeBornes').querySelectorAll('.carte')];
+  const i = cartes.indexOf(document.activeElement);
+  if(i < 0) return;
+  cartes[e.key === 'ArrowDown' ? Math.min(cartes.length - 1, i + 1) : Math.max(0, i - 1)].focus(); e.preventDefault();
+});
+$('replierBornes').onclick = () => {
+  const ouvert = $('replierBornes').getAttribute('aria-expanded') !== 'true';
+  $('replierBornes').setAttribute('aria-expanded', String(ouvert));
+  $('bornesZone').hidden = !ouvert;
+};
+
+// Fiche borne (feuille) : nom, operateur, points de charge, puissances, prises, paiement, horaires,
+// acces, PMR, date de mise a jour (« donnée ancienne » au-dela d'un an), « Y aller » (meme feuille
+// de choix d'application que les stations).
+let BORNE = null;
+function ouvrirBorne(b, origine){
+  BORNE = b;
+  const d = b.d != null ? b.d : dist(b.la, b.lo);
+  $('fbTitre').textContent = brut(b.n);
+  $('fbOperateur').textContent = b.op ? brut(b.op) : 'opérateur non renseigné';
+  $('fbInfos').replaceChildren(
+    mk('span', null, mkSvg('epingle'), ' ', ROUTE && b.ecart != null ? `${b.ecart.toFixed(1)} km du trajet · km ${Math.round(b.kmr)}` : `${d.toFixed(1)} km du repère`),
+    mk('span', null, mkSvg('eclair'), ' ', `${b.pdc} point${b.pdc > 1 ? 's' : ''} de charge`));
+  const ouvert = ouvertA(brut(b.h || ''), new Date());
+  const ligne = (icone, ...txt) => mk('li', null, mkSvg(icone), mk('span', null, ...txt));
+  $('fbDetails').replaceChildren(
+    ligne('eclair', mk('b', null, 'Puissance : '), b.kw > 0 ? `${libellePuissance(b.kw)} au maximum` + (b.kwmin > 0 && b.kwmin < b.kw ? ` (${libellePuissance(b.kwmin)} au minimum)` : '') : 'inconnue'),
+    ligne('prise', mk('b', null, 'Prises : '), libellePrises(b)),
+    ligne(b.gratuit === true ? 'cadeau' : 'cartebancaire', mk('b', null, 'Paiement : '), libellePaiement(b)),
+    ligne('horloge', mk('b', null, 'Horaires : '), brut(libelleHoraires(b.h)),
+          ouvert === true ? ' · ouvert maintenant' : ouvert === false ? mk('span', 'ko-lbl', ' · fermé maintenant') : ''),
+    ligne('cadenas', mk('b', null, 'Accès : '), b.acces === 'libre' ? 'libre' : b.acces === 'reserve' ? 'réservé (clientèle, badge…)' : 'non renseigné'),
+    ligne('pmr', mk('b', null, 'Accessibilité PMR : '), b.pmr === true ? 'oui' : b.pmr === false ? 'non' : 'non renseignée'));
+  const maj = libelleMaj(b.maj, new Date());
+  $('fbMaj').textContent = maj.txt.charAt(0).toUpperCase() + maj.txt.slice(1) + (maj.ancien ? ' : vérifiez avant d\'y compter.' : '.');
+  $('fbMaj').classList.toggle('ancien', maj.ancien);
+  ouvrirFeuille('ficheBorne', origine);
+}
+$('fbAller').onclick = () => { if(BORNE) allerA(BORNE, $('fbAller')); };
+
+// ---- Plan de charge en heros (vehicule electrique + trajet) ----
+// Chiffre-heros = temps de charge total ; sous-ligne = arrets et pourcentage a l'arrivee ; ligne
+// de temps des arrets numerotes (borne, km, kWh, puissance, minutes, % avant / apres), aussi
+// numerotes sur la carte. Etats dessines : faisable sans recharge (autonomie restante), infaisable
+// (remedes concrets : puissance minimale, prise Type 2, couloir, reserve), vehicule a completer.
+let DEPART_PCT = null;   // etat de charge au depart saisi pour CE trajet (non memorise ; null = celui de la fiche)
+['depart', 'arrivee'].forEach(id => $(id).addEventListener('input', () => { DEPART_PCT = null; }));
+function renduElec(){
+  const v = vehActif(), ve = vehElec(v);
+  MARQUEURS.forEach(m => m.remove()); MARQUEURS = [];
+  $('liste').innerHTML = ''; LISTE_COURANTE = [];
+  $('secStations').hidden = true;
+  $('blocPlan').hidden = true;
+  $('titreListe').firstChild.textContent = ROUTE ? 'Sur le trajet' : 'Autour de vous';
+  $('echelle').textContent = '';
+  majCompte = () => {};
+  let etapes = null, resume = '';
+  if(ROUTE && KMS){
+    const total = KMS[KMS.length - 1];
+    $('blocPlan').hidden = false;
+    if(TRAJET){
+      $('planTrajet').textContent = `${TRAJET.dep} ${TRAJET.ar ? '⇄' : '→'} ${TRAJET.arr}`;
+      $('planMeta').textContent = `${Math.round(TRAJET.km)} km · ${duree(TRAJET.min)}`;
+    }
+    const heros = [];
+    const ouvrirGarage = champ => { appliquerVeh(); ouvrirFeuille('garage', $('chipVeh')); if(champ) $(champ).focus(); };
+    const en = autonomieElectrique(ve);
+    const larg = +$('couloir').value;
+    if(!en){
+      const manque = [!(ve.batterieKwh > 0) && 'la batterie utile', !(ve.consoKwh100 > 0) && 'la consommation en kWh/100 km'].filter(Boolean).join(' et ');
+      heros.push(mk('div', 'heros-etat', mk('b', null, 'Véhicule à compléter'), ` — renseignez ${manque} pour savoir où recharger.`,
+        mk('div', 'actions',
+          mkBtn('btn primaire', 'Compléter le véhicule', () => ouvrirGarage(!(ve.batterieKwh > 0) ? 'vbatt' : 'vconsoKwh'), 'garage'),
+          mkBtn('btn', 'Assistant', () => ASSISTANT.ouvrir(vehActif()), 'estimer'))));
+      resume = 'Plan de charge : véhicule à compléter.';
+    }else{
+      const departPct = DEPART_PCT != null ? DEPART_PCT : ve.departPct;
+      // Candidats : bornes du couloir passant les filtres, une occurrence par position (aller, retour).
+      const cand = [];
+      filtrerBornes(BORNES, critBornes()).forEach(b => {
+        if(!situerBorne(b)) return;
+        b.occ.forEach(o => { if(o.d <= larg) cand.push({s: b, km: o.km, e: o.d}); });
+      });
+      cand.sort((a, b) => a.km - b.km);
+      const r = optimiserPlanElectrique(cand, null, total, null, ve, {departPct});
+      const E0 = en.B * departPct / 100, Autile = Math.max(0, E0 - en.R) / en.lkm;
+      etapes = new Map();
+      r.arrets.forEach((a, i) => { const l = etapes.get(a.station) || []; l.push(i + 1); etapes.set(a.station, l); });
+      // Couloir et etat de charge au depart : reglables sous le chiffre (select#couloir reste la
+      // source de verite : lien partage, liste, carte).
+      const reglages = () => {
+        const bloc = mk('div', 'couloir-chips', 'Bornes jusqu\'à ');
+        const grp = mk('span', null); grp.setAttribute('role', 'group'); grp.setAttribute('aria-label', 'Largeur du couloir');
+        [1, 2, 5, 10, 20].forEach(w => {
+          const b = mkBtn('', `${w} km`, () => { if(+$('couloir').value === w) return; $('couloir').value = String(w); $('couloir').dispatchEvent(new Event('change')); });
+          b.setAttribute('aria-pressed', String(w === larg)); grp.append(b);
+        });
+        const inp = document.createElement('input');
+        inp.type = 'number'; inp.min = '5'; inp.max = '100'; inp.step = '5'; inp.inputMode = 'numeric'; inp.value = String(Math.round(departPct));
+        inp.setAttribute('aria-label', 'État de charge au départ, en pour cent');
+        inp.onchange = () => { const p = +inp.value; DEPART_PCT = Number.isFinite(p) && p >= 5 && p <= 100 ? p : null; rendu(); };
+        bloc.append(grp, ' de la route · départ à ', inp, ' %');
+        return bloc;
+      };
+      const rappel = mk('p', 'heros-rappel',
+        `≈ ${Math.round(Autile)} km utiles au départ (batterie ${virgule(ve.batterieKwh)} kWh à ${Math.round(departPct)} %, réserve ${Math.round(ve.reservePct)} % gardée) · ${virgule(ve.consoKwh100)} kWh/100 km` +
+        ` · ${ve.kwMaxDC > 0 ? `${virgule(ve.kwMaxDC)} kW en continu` : 'pas de charge rapide'}${ve.kwMaxAC > 0 ? `, ${virgule(ve.kwMaxAC)} kW en alternatif` : ''}` +
+        ` · bornes à ${larg} km de la route au plus` + (BF.kwMin ? ` · ≥ ${BF.kwMin} kW` : '') + (BF.gratuit ? ' · gratuites' : '') + (BF.cb ? ' · carte bancaire' : '') + (BF.ouvert ? ' · ouvertes maintenant' : '') +
+        ' · temps : 5 min de branchement par arrêt, puissance divisée par deux au-delà de 80 %.');
+      const kwb = kw => mk('span', 'kwb ' + classePuissance(kw), libellePuissance(kw));
+      const item = (cls, pt, titre, lignes, borne) => {
+        const li = mk('li', cls);
+        const p = mk('span', 'lt-pt' + (pt.plein ? ' plein' : '') + (pt.pause ? ' pause' : '') + (pt.elec ? ' elec' : ''), pt.txt || '');
+        p.setAttribute('aria-hidden', 'true');
+        const txt = mk('div', 'lt-txt', mk('b', null, titre));
+        (lignes || []).filter(Boolean).forEach(l => txt.append(mk('span', 'lt-ligne', ...(Array.isArray(l) ? l : [l]))));
+        li.append(p, txt);
+        if(borne){
+          const b = mkBtn('lt-aller', 'Y aller', () => allerA(borne, b), 'navigation');
+          b.setAttribute('aria-label', `Y aller : ${brut(borne.n)}`);
+          li.append(b);
+        }
+        return li;
+      };
+      const kmRestants = pct => Math.max(0, en.B * pct / 100 - en.R) / en.lkm;
+      const ligneTemps = () => {
+        const ol = mk('ol', 'ligne-temps');
+        ol.setAttribute('aria-label', 'Arrêts du plan de charge');
+        ol.append(item('lt-depart', {plein: true}, `Départ · batterie à ${Math.round(departPct)} %`, [`≈ ${Math.round(Autile)} km utiles`]));
+        const ajouter = (de, a) => r.arrets.forEach((e, i) => {
+          if(e.kmDepuisDepart < de || e.kmDepuisDepart >= a) return;
+          ol.append(item('lt-etape', {txt: String(i + 1), elec: true}, `Arrêt ${i + 1} — ${brut(e.station.n)}`,
+            [[`km ${Math.round(e.kmDepuisDepart)} · `, kwb(e.kw), e.detourKm > 0.05 ? ` · détour ${virgule((2 * e.detourKm).toFixed(1))} km` : ''],
+             `+${Math.round(e.kwhCharges)} kWh en ≈ ${Math.round(e.minutes)} min · ${pctTxt(e.pctArrivee)} → ${pctTxt(e.pctDepart)}`,
+             e.station.op ? `${brut(e.station.op)} · ${libellePaiement(e.station)} · ${brut(libelleHoraires(e.station.h))}` : `${libellePaiement(e.station)} · ${brut(libelleHoraires(e.station.h))}`],
+            e.station));
+        });
+        if(ROUTE_AR){
+          ajouter(0, ALLER_KM);
+          ol.append(item('lt-arrivee', {pause: true}, `Arrivée — ${TRAJET ? TRAJET.arr : 'arrivée'}`, [`km ${Math.round(ALLER_KM)}`]));
+          ajouter(ALLER_KM, Infinity);
+          ol.append(item('lt-retour', {plein: true}, `Retour — ${TRAJET ? TRAJET.dep : 'départ'}`, [`km ${Math.round(total)} · ${pctTxt(r.pctArrivee)} à l'arrivée (≈ ${Math.round(kmRestants(r.pctArrivee))} km restants)`]));
+        }else{
+          ajouter(0, Infinity);
+          ol.append(item('lt-arrivee', {plein: true}, `Arrivée — ${TRAJET ? TRAJET.arr : 'arrivée'}`, [`km ${Math.round(total)} · ${pctTxt(r.pctArrivee)} à l'arrivée (≈ ${Math.round(kmRestants(r.pctArrivee))} km restants, réserve comprise)`]));
+        }
+        return ol;
+      };
+      if(!r.faisable && BORNES_CHARGEMENT && r.motif === 'aucune borne compatible dans le couloir'){
+        heros.push(mk('div', 'heros-etat', mk('b', null, 'Recherche des bornes du trajet…'), ` — ${Math.round(Autile)} km utiles au départ pour ${Math.round(total)} km.`));
+        heros.push(reglages(), rappel);
+        resume = 'Plan de charge : chargement des bornes.';
+      }else if(!r.faisable){
+        // Infaisable : dire pourquoi et proposer des remedes cliquables, jamais un ecran vide.
+        const actions = mk('div', 'actions');
+        if(BF.kwMin > 0) actions.append(mkBtn('btn primaire', `Toute puissance (retirer « ≥ ${BF.kwMin} kW »)`, () => { $('bKwMin').value = '0'; $('bKwMin').dispatchEvent(new Event('change')); }, 'filtre'));
+        if(BF.gratuit || BF.cb || BF.ouvert) actions.append(mkBtn('btn', 'Retirer les autres filtres', () => { $('bGratuit').checked = false; $('bCb').checked = false; $('bOuvert').checked = false; $('bGratuit').dispatchEvent(new Event('change')); }, 'filtre'));
+        if(!(ve.kwMaxAC > 0)) actions.append(mkBtn('btn' + (BF.kwMin > 0 ? '' : ' primaire'), 'Accepter la charge lente (prise Type 2, 7,4 kW)', () => { v.kwMaxAC = '7.4'; appliquerVeh(); reglagesEcrits(); rendu(); }, 'prise'));
+        if(larg < 20){ const suiv = [1, 2, 5, 10, 20].find(w => w > larg); actions.append(mkBtn('btn', `Élargir le couloir (${larg} → ${suiv} km)`, () => { $('couloir').value = String(suiv); $('couloir').dispatchEvent(new Event('change')); }, 'route')); }
+        if(ve.reservePct > 5) actions.append(mkBtn('btn', `Réduire la réserve (${Math.round(ve.reservePct)} → 5 %)`, () => { v.reservePct = '5'; appliquerVeh(); reglagesEcrits(); rendu(); }));
+        if(departPct < 100) actions.append(mkBtn('btn', 'Partir à 100 %', () => { DEPART_PCT = 100; rendu(); }, 'batterie'));
+        actions.append(mkBtn('btn', 'Revoir la batterie', () => ouvrirGarage('vbatt'), 'garage'));
+        const motif = r.motif === 'aucune borne compatible dans le couloir'
+          ? (BORNES_MSG === 'bornes indisponibles hors ligne' || IRVE_ETAT === 'indisponible' ? 'les bornes sont indisponibles hors ligne : impossible de calculer un plan de charge.'
+             : !BORNES.length && !BORNES_DEPS.length ? 'aucune borne connue le long de ce trajet dans la Base nationale des IRVE.'
+             : `aucune borne compatible (prise ${LIBELLE_PRISE[ve.prise]}${ve.kwMaxAC > 0 ? ' ou Type 2' : ''}${BF.kwMin ? `, ≥ ${BF.kwMin} kW` : ''}) à ${larg} km de la route au plus.`)
+          : `${Math.round(Autile)} km utiles au départ pour ${Math.round(total)} km : avec les bornes compatibles à ${larg} km de la route au plus, aucune suite d'arrêts ne passe sans entamer la réserve.`;
+        heros.push(mk('div', 'heros-etat ko', mkSvg('alerte'), ' ', mk('b', null, 'Trajet impossible avec ces bornes'), ` — ${motif}`, actions));
+        heros.push(reglages(), rappel);
+        resume = `Plan de charge : trajet infaisable — ${motif}`;
+      }else if(!r.arrets.length){
+        heros.push(mk('div', 'heros-etat ok', mk('b', null, 'Aucune recharge nécessaire'),
+          ` — ${Math.round(total)} km pour ≈ ${Math.round(Autile)} km utiles au départ : vous arrivez à ${pctTxt(r.pctArrivee)} (≈ ${Math.round(kmRestants(r.pctArrivee))} km d'autonomie restante, réserve comprise).`));
+        heros.push(mk('p', 'heros-chiffre', mk('b', null, '0 min'), mk('span', null, 'de charge en route')));
+        heros.push(mk('p', 'heros-sous', `0 arrêt · ${pctTxt(r.pctArrivee)} à l'arrivée · ≈ ${Math.round(r.energieKwh)} kWh consommés`));
+        heros.push(reglages(), rappel, ligneTemps());
+        resume = `Plan de charge : aucune recharge nécessaire, ${pctTxt(r.pctArrivee)} à l'arrivée.`;
+      }else{
+        const kwh = r.arrets.reduce((t, a) => t + a.kwhCharges, 0);
+        heros.push(mk('p', 'heros-chiffre', mk('b', null, duree(r.minutesCharge)), mk('span', null, 'de charge en route')));
+        heros.push(mk('p', 'heros-sous', `${r.arrets.length} arrêt${r.arrets.length > 1 ? 's' : ''} · ${pctTxt(r.pctArrivee)} à l'arrivée · ≈ ${Math.round(kwh)} kWh rechargés`));
+        heros.push(reglages(), rappel, ligneTemps());
+        resume = `Plan de charge : ${r.arrets.length} arrêt${r.arrets.length > 1 ? 's' : ''}, ${duree(r.minutesCharge)} de charge, ${pctTxt(r.pctArrivee)} à l'arrivée.`;
+      }
+    }
+    $('plan').replaceChildren(...heros.filter(Boolean));
+    if($('planEtat').textContent !== resume) $('planEtat').textContent = resume;
+  }
+  renduBornes(true, etapes);
+}
+
 // Cadrage initial deterministe (~10 km autour du repere de depart), sans fitBounds ni
 // animation : aucun recadrage sans geste de l'utilisateur.
 if(REGL.sansCher === false) $('sansCher').checked = false;
@@ -2006,7 +2514,7 @@ localiser(true, () => lancerTrajetImporte());   // puis on recentre sur l'appare
 
 // ---------- Assistant vehicule (premier lancement, ou bouton du garage) ----------
 const ASSISTANT = creerAssistant({
-  $, REGL, CASES, TYPES, CATEGORIES_CONSO, estimerConso, autonomieUtile, ico,
+  $, REGL, CASES, TYPES, CATEGORIES_CONSO, estimerConso, estimerConsoElec, autonomieUtile, autonomieElectrique, ico,
   ouvrirFeuille, fermerFeuille, localiser, reticule, geocoder, situer, rechercheOuverte, MOBILE, reglagesBruts,
   apresVehicule(){ appliquerVeh(); majSelectVeh(); charger(); },
 });

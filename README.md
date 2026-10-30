@@ -1,6 +1,7 @@
 # ⛽ ViaMinus
 
-Carte des prix des carburants en France **avec planification optimale des pleins**,
+Carte des prix des carburants en France **avec planification optimale des pleins** — et,
+pour un véhicule électrique, les bornes de recharge et le **plan de charge** —,
 dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tracker.
 
 ## Ce que ça fait
@@ -14,6 +15,10 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   17/09/2026) : l'autonomie, que l'on connaît ou que la voiture affiche, prime.
   Import/partage d'une fiche par l'URL : `fuelpilot.html#veh=Nom|e85+e10|6.5|50|30`
   (nom|carburants|conso|réservoir|réserve), autonomie en 6ᵉ champ facultatif : `…|30|600`.
+  **Véhicule électrique** (30/10/2026) : 7ᵉ champ `E<batterie kWh>,<kWh/100 km>,<kW DC>,<kW AC>,<prise>,<réserve %>,<départ %>`,
+  ex. `#veh=Citadine%20%C3%A9lectrique|||||E50,17,150,11,ccs,15,80` (prise `ccs`, `chademo`
+  ou `t2` ; champ vide = défaut : CCS, 15 %, 80 %). Un lien ancien à 5 ou 6 champs reste lu tel
+  quel ; une page antérieure ignore un lien à 7 champs sans le lire de travers (`src/partage.js`).
 - **Plan de pleins optimal** (problème de la station-service, programmation
   dynamique sur l'état du réservoir, refaite le 24/10/2026) : on part plein, à
   chaque arrêt on achète **juste ce qu'il faut** pour atteindre le suivant (ou
@@ -111,6 +116,44 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   servir en https), appui long ou clic droit sur la carte pour poser le repère
   (ou menu Position : sur la carte avec réticule, une adresse), `#pos=lat,lon`
   par l'URL. Aucune coordonnée personnelle embarquée.
+- **Véhicule électrique** (phase 2, 30/10/2026) : énergie « électrique » dans l'assistant
+  (écran 1, après le type) ou le garage — batterie utile (kWh), consommation en kWh/100 km
+  pré-remplie par catégorie et modifiable (`estimerConsoElec`, `src/conso.js` : ordres de
+  grandeur WLTP majorés pour la route), puissance de charge maximale en continu (50 · 100 ·
+  150 · 250 kW · autre) et en alternatif (7,4 · 11 · 22 kW), prise (**CCS par défaut**,
+  CHAdeMO, Type 2 seule), réserve (15 %), état de charge au départ (80 %). Le chip du garage
+  dit « électrique · 50 kWh · CCS » ; un garage mixte (une E85, une électrique) bascule
+  stations / bornes et plan de pleins / plan de charge selon le véhicule actif, le plan de
+  pleins thermique ne change pas d'un pixel.
+- **Bornes de recharge** (Base nationale des IRVE, fichiers `data/irve/<dep>.json` servis à côté
+  de la page, cf. Développement) : visibles d'office pour un véhicule électrique (à la place
+  des stations), en option pour un thermique (« Afficher les bornes électriques », menu
+  Options, désactivée par défaut). Chargement **par département** d'après `index.json` (bbox
+  par département) : les départements qui croisent l'emprise, **4 au plus à la fois** (au-delà :
+  « zoomez pour voir les bornes ») ; pour un trajet, tous ceux que croise le couloir de 20 km,
+  par lots de 4 ; cache en mémoire, réponses obsolètes abandonnées à chaque déplacement. En
+  `file://` ou si `index.json` est injoignable : « bornes indisponibles hors ligne », rien
+  d'autre ne casse. Marqueur éclair coloré par puissance maximale (violet foncé ≥ 150 kW,
+  violet 50 à 149, violet clair < 50, gris pointillé inconnue — une teinte à part, qui ne dit
+  jamais un prix), filtres puissance minimale (7 · 22 · 50 · 150 kW) / gratuit / carte bancaire /
+  ouvert maintenant ; pour un véhicule électrique, seules les bornes où l'on peut se brancher
+  (prise DC du véhicule, ou Type 2, ou prises inconnues) sont montrées. Le plafond de 400
+  éléments vaut pour le total affiché (stations + bornes) et l'écran le dit quand ça tronque.
+  Liste et fiche : nom, opérateur, points de charge, puissance max et min, prises, paiement
+  (gratuit / à l'acte / carte bancaire), horaires (« 24h/24 » ou texte, « ouvert maintenant »),
+  accès, PMR, « mis à jour il y a N jours » (au-delà de 365 jours : « donnée ancienne »),
+  « Y aller » identique à celui des stations.
+- **Plan de charge** (véhicule électrique + trajet) : `optimiserPlanElectrique` sur les bornes
+  du couloir passant les filtres ; carte-héros : grand chiffre = **temps de charge total**,
+  sous-ligne = nombre d'arrêts, pourcentage à l'arrivée, kWh rechargés ; ligne de temps avec
+  les arrêts numérotés (aussi sur la carte : rond noir numéroté) — borne, km, puissance
+  effective, détour, kWh, minutes, pourcentage avant / après, « Y aller » ; couloir (1 à 20 km)
+  et état de charge au départ réglables sous le chiffre. « Aucune recharge nécessaire » :
+  carte-héros positive (pourcentage et km restants à l'arrivée). Infaisable : message et
+  remèdes concrets (retirer la puissance minimale ou les filtres, accepter la charge lente
+  Type 2, élargir le couloir, réduire la réserve, partir à 100 %, revoir la batterie), jamais
+  un écran vide. Il optimise le **temps**, pas l'euro (aucun prix au kWh dans les données
+  ouvertes).
 - **Interface** : la carte est l'écran, tout le reste flotte dessus — pilule de
   recherche, chip véhicule (garage), feuille glissante à trois crans sur mobile,
   panneau gauche de 400 px sur bureau ; fiche station, garage, options et aide
@@ -148,31 +191,37 @@ Le gabarit vit dans `src/` et `generate.py` l'assemble en un seul fichier :
 | `src/index.html` | structure de la page (`__APP_CSS__`, `__APP_JS__` = points d'insertion) |
 | `src/app.css` | styles ; jetons dans `:root` (couleurs métier, surfaces, rayons), mode sombre, mise en page mobile / bureau |
 | `src/plan.js` | algorithme du plan de pleins (DP sur l'état du réservoir, coût du voyage, prix moyen, économie vs le plus cher) et du plan de charge électrique (`optimiserPlanElectrique`, DP sur l'énergie à bord, temps de charge), pur, exporté pour Node |
-| `src/conso.js` | table de consommation embarquée (`estimerConso`), pure, exportée pour Node |
+| `src/conso.js` | tables de consommation embarquées (`estimerConso` en L/100 km, `estimerConsoElec` en kWh/100 km), pures, exportées pour Node |
 | `src/irve.js` | bornes de recharge : lecture des champs Etalab (`parseBool`, `parsePuissance`, `parseXY`), horaires (`ouvertA`), compatibilité véhicule / borne, filtres, couloir le long d'un trajet (`bornesSurTrajet`) ; pur, exporté pour Node |
+| `src/bornes.js` | bornes côté interface : `departementsPourEmprise(index, bbox)`, `classePuissance` (rapide / moyen / lent / inconnu), `libellePuissance`, `libelleHoraires`, `libelleMaj` (donnée ancienne > 365 j), `branchable`, `libellePrises`, `libellePaiement` ; pur, exporté pour Node |
+| `src/partage.js` | format `#veh=` : `vehVersParam` / `paramVersVeh`, format historique et 7ᵉ champ électrique, lien ancien toujours lu ; pur, exporté pour Node |
 | `src/fixtures/irve-echantillon-34.csv`, `src/fixtures/irve-34.json` | 12 points de charge réels de l'Hérault (fichier du 28/10/2026) + 1 ligne synthétique (code postal seulement dans l'adresse), et leur sortie par `irve_build.py` : fixture des tests, seule donnée IRVE commitée |
 | `src/ui/icones.js` | icônes SVG inline (jeu Lucide, MIT) : `ico('nom')` |
 | `src/ui/feuilles.js` | feuille glissante à trois crans (mobile), feuilles modales, Échap, focus |
 | `src/ui/fond.js` | carte MapLibre : créée sans style, style IGN vectoriel posé une seule fois, transformation sombre, orthophoto, repli raster IGN puis OSM, WebGL absent |
-| `src/ui/assistant.js` | assistant véhicule en trois écrans (`creerAssistant(ctx)`) |
-| `src/app.js` | données, rendu (marqueurs, liste, carte-héros du plan), garage, itinéraire (aller-retour), partage, import par l'URL, position, menus |
-| `src/plan.test.js`, `src/conso.test.js`, `src/irve.test.js`, `src/plan-elec.test.js` | tests des modules purs |
+| `src/ui/assistant.js` | assistant véhicule en trois écrans (`creerAssistant(ctx)`), énergie thermique ou électrique |
+| `src/app.js` | données, rendu (`rendu()` aiguille vers `renduCarburant()` — stations, plan de pleins, inchangé — ou `renduElec()` — bornes, plan de charge), garage, itinéraire (aller-retour), partage, import par l'URL, position, menus, bornes (`chargerBornes`, `renduBornes`, `ouvrirBorne`) |
+| `src/plan.test.js`, `src/conso.test.js`, `src/irve.test.js`, `src/plan-elec.test.js`, `src/bornes.test.js`, `src/partage.test.js` | tests des modules purs |
 | `irve_build.py`, `irve_build_test.py` | Base nationale des IRVE (CSV, 114 Mo) → `data/irve/<dep>.json` + `index.json`, bibliothèque standard seule ; tests `unittest` du département et de l'emprise |
 
 Les scripts sont assemblés dans l'ordre de `SCRIPTS` (`generate.py`) en un seul
-`<script>` : `plan.js`, `conso.js`, `irve.js`, `ui/*.js`, puis `app.js`.
+`<script>` : `plan.js`, `conso.js`, `irve.js`, `bornes.js`, `partage.js`, `ui/*.js`, puis `app.js`.
 
 ```bash
-node --test src/plan.test.js src/conso.test.js src/irve.test.js src/plan-elec.test.js   # modules purs (Node ≥ 20)
+node --test src/*.test.js   # modules purs (Node ≥ 20)
 ```
 
-### Bornes de recharge (phase 1, 28/10/2026 : données, module pur, plan de charge — sans interface)
+Les bornes se chargent par `fetch` d'URL **relatives** (`data/irve/index.json`,
+`data/irve/<dep>.json`), donc sous `connect-src 'self'` : aucun hôte ajouté à la CSP. Déposer
+la sortie d'`irve_build.py` à côté de la page (`<dossier de fuelpilot.html>/data/irve/`).
 
-L'électricité est traitée comme un carburant : un véhicule électrique aura sa fiche
+### Bornes de recharge (phase 1, 28/10/2026 : données, module pur, plan de charge ; phase 2, 30/10/2026 : interface)
+
+L'électricité est traitée comme un carburant : un véhicule électrique a sa fiche
 (`batterieKwh`, `consoKwh100`, `kwMaxDC`, `kwMaxAC`, prise `ccs` / `chademo` / `t2`,
-réserve 15 %, départ 80 %), les bornes publiques viendront sur la carte et le trajet aura
-son **plan de charge** (où s'arrêter, combien de temps, pourcentage à l'arrivée). Cette
-phase livre la mécanique, la phase 2 l'interface.
+réserve 15 %, départ 80 %), les bornes publiques sont sur la carte et le trajet a
+son **plan de charge** (où s'arrêter, combien de temps, pourcentage à l'arrivée). La
+phase 1 a livré la mécanique, la phase 2 l'interface (voir « Ce que ça fait »).
 
 ```bash
 python3 irve_build.py consolidation-etalab-schema-irve-statique-v-2.3.1-AAAAMMJJ.csv --sortie data/irve/
@@ -234,9 +283,14 @@ sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
   Italie sans CORS ; Allemagne à clé personnelle).
 - `file://` : Firefox y refuse la géolocalisation et cloisonne le stockage par
   fichier — héberger en https règle les deux.
-- 400 stations chargées par zone au maximum (annoncé à l'écran quand ça tronque).
+- 400 éléments affichés par zone au maximum, stations et bornes confondues (annoncé à
+  l'écran quand ça tronque) ; bornes : 4 départements à la fois au plus en vue libre.
+- Bornes de recharge : données **statiques** (pas de disponibilité en temps réel, pas de prix
+  au kWh), indisponibles en `file://` et hors ligne (fichiers servis à côté de la page) ; les
+  consommations électriques pré-remplies sont des ordres de grandeur, pas des médianes mesurées.
 - Plan de charge électrique : il optimise le **temps de charge**, pas l'euro (pas de prix au
-  kWh dans les données ouvertes) ; courbe de charge simplifiée en deux paliers (puissance
+  kWh dans les données ouvertes) — pas de « Faire un détour pour payer moins ? » pour
+  l'électrique, le couloir se règle à la main ; courbe de charge simplifiée en deux paliers (puissance
   pleine jusqu'à 80 % de la batterie, moitié au-delà) et 5 min de branchement par arrêt,
   énergies au kWh entier (consommation de chaque tronçon arrondie au kWh supérieur) : un
   ordre de grandeur, pas la courbe réelle du véhicule. Horaires : syntaxe simplifiée

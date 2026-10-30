@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ViaMinus — mode d'emploi</title>
-<meta name="description" content="ViaMinus : carte des prix des carburants en France et plan de pleins optimal. Comment l'utiliser et le partager.">
+<meta name="description" content="ViaMinus : carte des prix des carburants en France, plan de pleins optimal, bornes de recharge et plan de charge pour l'électrique. Comment l'utiliser et le partager.">
 <style>
   :root{
     --fond:#f6f7f9; --carte:#ffffff; --texte:#1b1f24; --muet:#5b6370; --trait:#e3e6ea;
@@ -167,6 +167,38 @@
     Le plein de départ est compté au meilleur prix à moins de 15 km du départ.</p>
 </div>
 
+<h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg> Véhicule électrique</h2>
+<div class="carte"><ul class="liste">
+  <li><b>Votre voiture</b>
+    Dans l'assistant (ou le garage), choisissez l'énergie <kbd>Électrique</kbd> après le type. Trois chiffres comptent : la
+    batterie utile en kWh (celle que le constructeur annonce comme utilisable), la consommation en kWh/100 km (pré-remplie
+    selon la catégorie, à corriger d'après ce que votre voiture affiche sur route) et la puissance de charge maximale —
+    sur borne rapide (courant continu : 50, 100, 150, 250 kW…) et sur borne lente (prise Type 2 : 7,4, 11 ou 22 kW). La
+    prise est CCS par défaut (CHAdeMO ou Type 2 seule possibles) ; réserve 15 % et départ à 80 % sont des valeurs
+    habituelles, modifiables. Plusieurs véhicules peuvent cohabiter : une voiture au E85 et une électrique, la carte
+    suit celle qui est active.</li>
+  <li><b>Les bornes sur la carte</b>
+    Pour une électrique, les bornes publiques remplacent les stations : un éclair, violet foncé au-delà de 150 kW,
+    violet entre 50 et 149, clair en dessous, gris quand la puissance n'est pas déclarée. Seules celles où vous pouvez
+    vous brancher sont montrées. Filtres au-dessus de la liste : puissance minimale, gratuit, carte bancaire, ouvert
+    maintenant. Toucher une borne ouvre sa fiche : opérateur, nombre de points, puissances, prises, paiement, horaires,
+    accès, accessibilité PMR, date de mise à jour (signalée « donnée ancienne » au-delà d'un an) et <kbd>Y aller</kbd>.
+    Les bornes se chargent département par département : au-delà de quatre départements à l'écran, la carte vous
+    demande de zoomer. Pour une voiture thermique, l'option <kbd>Afficher les bornes électriques</kbd> (menu Options) les
+    ajoute à côté des stations.</li>
+  <li><b>Le plan de charge</b>
+    Sur un trajet, la carte-héros donne le <b>temps de charge total</b>, le nombre d'arrêts et le pourcentage de batterie à
+    l'arrivée, puis chaque arrêt numéroté (aussi sur la carte) : la borne, le kilomètre, les kWh à reprendre, la
+    puissance, les minutes, le pourcentage en arrivant et en repartant. Le calcul ne descend jamais sous la réserve,
+    compte 5 minutes de branchement par arrêt et ralentit la charge au-delà de 80 % (comme les voitures le font). Sous
+    le chiffre, vous réglez la largeur du couloir (bornes jusqu'à 1 à 20 km de la route) et l'état de charge au départ.
+    « Aucune recharge nécessaire » quand la batterie suffit ; si le trajet est impossible, la page dit pourquoi et
+    propose des remèdes : baisser la puissance minimale, accepter la charge lente Type 2, élargir le couloir, réduire
+    la réserve, partir à 100 %. Le plan optimise le <b>temps</b>, pas le prix : aucune donnée ouverte ne publie le prix
+    au kWh, et les données des bornes sont statiques (pas de disponibilité en temps réel). Le partage du plan et de
+    la fiche fonctionne comme pour un véhicule thermique.</li>
+</ul></div>
+
 <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Questions fréquentes</h2>
 <div class="carte">
   <details><summary>Pourquoi ne pas retrouver ma voiture par sa plaque ?</summary>
@@ -185,8 +217,9 @@
     <p>L'autonomie entre deux stations à portée ne suffit pas. L'application propose les remèdes : accepter un détour
       (des stations plus loin de la route), réduire la réserve, vérifier l'autonomie du véhicule, ou accepter plus de carburants.</p></details>
   <details><summary>Et pour une voiture électrique ?</summary>
-    <p>Pas encore : ViaMinus couvre les carburants déclarés au flux officiel (gazole, SP95, SP98, E10, E85, GPL). Les bornes de
-      recharge sont une piste étudiée.</p></details>
+    <p>Oui, depuis le 30 octobre 2026 : voir la section « Véhicule électrique » ci-dessous. Les bornes viennent de la Base nationale
+      des IRVE (données publiques, statiques) ; le plan dit où s'arrêter et combien de temps, pas combien ça coûte, parce qu'aucune
+      donnée ouverte ne publie le prix au kWh.</p></details>
 </div>
 
 <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg> Bon à savoir</h2>
@@ -201,13 +234,15 @@
     L'application tient dans un seul fichier HTML, qu'on peut aussi envoyer. Ouvert depuis un fichier, Firefox refuse la
     géolocalisation et sépare la mémoire par fichier : préférez le lien en ligne.</li>
   <li><b>Limites</b>
-    France uniquement. 400 stations au plus par zone affichée (l'écran le signale quand ça tronque).</li>
+    France uniquement. 400 stations et bornes au plus par zone affichée (l'écran le signale quand ça tronque). Bornes
+    indisponibles hors ligne et depuis un fichier local.</li>
 </ul></div>
 
 <footer>
   <p>Sources : prix <a href="https://data.economie.gouv.fr/explore/dataset/prix-des-carburants-en-france-flux-instantane-v2/">data.economie.gouv.fr</a> (Licence Ouverte) ·
+     bornes de recharge <a href="https://www.data.gouv.fr/datasets/fichier-consolide-des-bornes-de-recharge-pour-vehicules-electriques/">Base nationale des IRVE</a> (Licence Ouverte Etalab 2.0) ·
      fonds de carte et itinéraires IGN Géoplateforme · géocodage Base Adresse Nationale · MapLibre GL JS · icônes Lucide.</p>
-  <p>Code : <a href="https://github.com/rodylog/viaminus">github.com/rodylog/viaminus</a> (MIT). Mode d'emploi du 24 octobre 2026.</p>
+  <p>Code : <a href="https://github.com/rodylog/viaminus">github.com/rodylog/viaminus</a> (MIT). Mode d'emploi du 30 octobre 2026.</p>
 </footer>
 </main>
 <script>

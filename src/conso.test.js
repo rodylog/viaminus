@@ -60,3 +60,30 @@ test('chaque categorie listee a une ligne dans la table, et reciproquement', () 
     assert.deepStrictEqual(Object.keys(TABLE_CONSO[type]).sort(), listees);
   }
 });
+
+// ---- Vehicule electrique : estimerConsoElec (kWh/100 km) ----
+
+test('estimerConsoElec : table du brief (citadine 15, compacte 17, berline 18, SUV 21, monospace 20, utilitaire 25, camping-car 30, scooter/moto 7)', () => {
+  const {estimerConsoElec, TABLE_CONSO_ELEC} = require('./conso.js');
+  assert.strictEqual(estimerConsoElec('voiture', 'citadine').conso, 15);
+  assert.strictEqual(estimerConsoElec('voiture', 'compacte').conso, 17);
+  assert.strictEqual(estimerConsoElec('voiture', 'berline').conso, 18);
+  assert.strictEqual(estimerConsoElec('voiture', 'suv').conso, 21);
+  assert.strictEqual(estimerConsoElec('voiture', 'monospace').conso, 20);
+  assert.strictEqual(estimerConsoElec('utilitaire', 'fourgon').conso, 25);
+  assert.strictEqual(estimerConsoElec('campingcar', 'campingcar').conso, 30);
+  assert.strictEqual(estimerConsoElec('moto', 'scooter').conso, 7);
+  assert.strictEqual(estimerConsoElec('moto', 'moto').conso, 7);
+  // Meme jeu de categories que le thermique : chaque categorie listee a une valeur electrique.
+  for(const type of Object.keys(TABLE_CONSO)) assert.deepStrictEqual(Object.keys(TABLE_CONSO_ELEC[type]).sort(), Object.keys(TABLE_CONSO[type]).sort());
+});
+
+test('estimerConsoElec : categorie absente -> premiere du type ; type inconnu -> null ; source dite « ordre de grandeur »', () => {
+  const {estimerConsoElec} = require('./conso.js');
+  assert.strictEqual(estimerConsoElec('voiture').conso, 15);
+  assert.strictEqual(estimerConsoElec('voiture', 'camion').conso, 15);
+  assert.strictEqual(estimerConsoElec('utilitaire', undefined).conso, 25);
+  assert.strictEqual(estimerConsoElec('tracteur', 'x'), null);
+  assert.match(estimerConsoElec('voiture', 'suv').source, /ordre de grandeur suv/i);
+  assert.match(estimerConsoElec('voiture', 'suv').source, /WLTP/);
+});

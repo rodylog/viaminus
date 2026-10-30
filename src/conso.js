@@ -1,5 +1,5 @@
-// Estimation de la consommation (L/100 km, cycle mixte WLTP) quand le conducteur ne la
-// connait pas. Module PUR (aucun DOM), exporte pour Node et teste dans conso.test.js.
+// Estimation de la consommation (L/100 km, cycle mixte WLTP ; kWh/100 km pour l'electrique)
+// quand le conducteur ne la connait pas. Module PUR (aucun DOM), exporte pour Node et teste dans conso.test.js.
 //
 // Sources (relevees le 23/10/2026, phase 2) :
 //  - Lignes voiture : MEDIANES du catalogue des vehicules neufs « ADEME Car Labelling »
@@ -65,5 +65,34 @@ function estimerConso(type, categorie, carburant, hybride){
   return {conso: ligne[col], source, large: !!ligne.large};
 }
 
+// ---- Vehicule electrique (phase 2, 30/10/2026) : consommation en kWh/100 km ----
+// Ordres de grandeur par categorie, en kWh/100 km. Hypothese dite a l'ecran : moyennes des
+// valeurs constructeurs WLTP des modeles courants (citadines 13-15, compactes 15-17, berlines
+// 16-18, SUV 18-21, utilitaires 22-25 kWh/100 selon les fiches techniques publiees), MAJOREES
+// pour la route (vitesse soutenue, chauffage ou climatisation : la consommation reelle sur
+// autoroute depasse le cycle WLTP de 15 a 30 %). Aucune mediane calculee sur une base ouverte
+// (ADEME Car Labelling publie bien les consommations electriques, mais la jointure par
+// categorie n'a pas ete faite pour cette phase) : ce sont des ORDRES DE GRANDEUR, modifiables.
+// Camping-car et scooter/moto : valeurs encore plus approximatives (peu de modeles).
+// Comme pour le thermique, la conso ne sert qu'a situer les arrets : elle est pre-remplie et
+// le conducteur peut la corriger d'apres ce que sa voiture affiche.
+const TABLE_CONSO_ELEC = {
+  voiture: {citadine: 15, compacte: 17, berline: 18, suv: 21, monospace: 20},
+  utilitaire: {fourgon: 25},
+  campingcar: {campingcar: 30},
+  moto: {scooter: 7, moto: 7},
+};
+
+// estimerConsoElec(type, categorie) -> {conso (kWh/100 km), source} ou null (type inconnu).
+// Categorie absente ou inconnue -> premiere categorie du type (meme regle qu'estimerConso).
+function estimerConsoElec(type, categorie){
+  const cats = TABLE_CONSO_ELEC[type];
+  if(!cats) return null;
+  const cat = categorie && cats[categorie] ? categorie : Object.keys(cats)[0];
+  const libelle = ((CATEGORIES_CONSO[type] || []).find(c => c[0] === cat) || [cat, cat])[1];
+  return {conso: cats[cat],
+          source: `ordre de grandeur ${libelle.toLowerCase()} électrique : moyenne constructeurs WLTP majorée pour la route`};
+}
+
 if(typeof module !== 'undefined' && module.exports)
-  module.exports = {estimerConso, TABLE_CONSO, CATEGORIES_CONSO, COLONNE_CONSO};
+  module.exports = {estimerConso, TABLE_CONSO, CATEGORIES_CONSO, COLONNE_CONSO, TABLE_CONSO_ELEC, estimerConsoElec};
