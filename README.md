@@ -168,6 +168,14 @@ La CSP est recalculée à chaque génération à partir des scripts réellement 
 `connect-src` / `img-src` dans `csp_meta()`. MapLibre charge tuiles, glyphes et
 sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
 
+## Signalements partagés
+
+Un service minimal, anonyme, hébergé sur Cloudflare (Worker + base D1) reçoit les signalements
+« pompe vide » / « pompe ok » des personnes sur place et sert l'agrégat par station sur 48 h —
+la seule vraie source, puisque aucun flux automatique ne détecte une pompe vide (constat du
+26/10/2026). Code, routes, tests, déploiement et politique de confidentialité : `worker/README.md`.
+L'application ne l'interroge pas encore (prochaine étape).
+
 ## Sources et licences
 
 - Prix : [data.economie.gouv.fr](https://data.economie.gouv.fr/explore/dataset/prix-des-carburants-en-france-flux-instantane-v2/) (Licence Ouverte).
