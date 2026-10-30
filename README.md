@@ -161,7 +161,21 @@ Les scripts sont assemblés dans l'ordre de `SCRIPTS` (`generate.py`) en un seul
 
 ```bash
 node --test src/plan.test.js src/conso.test.js   # tests des modules purs (Node ≥ 20)
+node --test src/*.test.js banc/*.test.js         # + banc de non-régression (Chromium headless, sans réseau)
 ```
+
+**Banc de non-régression « 10 trajets »** (`banc/`, 30/10/2026) : le banc manuel du 26/10 rejoué
+en tests automatiques. `banc/enregistre.js` joue un trajet dans la page générée (Chromium headless,
+réseau réel, hors cloud) et enregistre chaque réponse des API dans `banc/fixtures/<slug>/` ;
+`banc/rejeu.test.js` rejoue chaque fixture sans réseau (toute requête servie depuis la fixture, hors
+fixture = échec), lit le plan par le point d'accès de test `window.__viaminus_plan` (publié par
+`rendu()`, inerte pour l'utilisateur) et vérifie des règles métier nommées (station muette de plus
+de 21 jours jamais retenue, plein d'arrivée figé alerté, carburant à bord valorisé une seule fois
+quelle que soit la largeur, message « détour nécessaire » à bon escient, coût = somme des pleins,
+économie non négative, déterminisme, fidélité au plan enregistré). Deux fixtures synthétiques
+(Paris → Lyon, Montpellier → Aniane) rendent le banc exécutable partout ; `node banc/rejeu.js <slug>`
+lit un échec. Seule dépendance npm du dépôt : Playwright, dans `banc/package.json`. Tout est dans
+`banc/README.md`.
 
 La CSP est recalculée à chaque génération à partir des scripts réellement inline
 (bibliothèque + application) ; un nouvel hôte réseau doit être ajouté à
