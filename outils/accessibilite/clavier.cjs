@@ -81,6 +81,9 @@ const contraste = (a, b) => { const la = lum(a), lb = lum(b); return +((Math.max
     }
     // Feuilles : ouvrir, Tab en boucle (le focus doit rester dedans), Échap (retour du focus à l'ouvreur).
     for(const [bouton, feuille] of [['#options', '#menuOptions'], ['#aideBtn', '#aide'], ['#chipVeh', '#garage'], ['#fonds', '#menuFonds'], ['#liste .carte', '#ficheStation']]){
+      // Mobile, panneau en plein : les boutons de la carte sont retires du flux (recouverts) ; on rabaisse
+      // le panneau d'un cran au clavier (fleche bas sur la poignee) avant d'y aller.
+      if(c.mobile && bouton === '#fonds'){ await page.focus('#poignee'); await page.keyboard.press('ArrowDown'); await page.waitForTimeout(250); }
       await page.focus(bouton); await page.keyboard.press('Enter'); await B.attendre(page, feuille);
       const dedans = await marcher(page, 40, feuille);
       const fuite = dedans.filter(x => x.dans === false);
