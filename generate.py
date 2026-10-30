@@ -56,7 +56,11 @@ MAPLIBRE = {
         "sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp"),
 }
 # Scripts du gabarit, dans l'ordre d'assemblage (un seul <script> a la fin de la page).
-SCRIPTS = ["plan.js", "conso.js", "ui/icones.js", "ui/feuilles.js", "ui/fond.js", "ui/assistant.js", "app.js"]
+SCRIPTS = ["plan.js", "conso.js", "es.js", "ui/icones.js", "ui/feuilles.js", "ui/fond.js", "ui/assistant.js", "app.js"]
+# Espagne (28/10/2026) : prix du ministere espagnol, charges par province depuis la page
+# (src/es.js) ; la table des provinces est inlinee a la place du jeton __ES_PROVINCIAS__.
+# Le snapshot de repli embarque reste francais : seul hote nouveau, dans connect-src.
+API_ES_HOTE = "https://sedeaplicaciones.minetur.gob.es"
 
 
 def _get(url, raw=False):
@@ -109,6 +113,8 @@ def csp_meta(html):
     (orthophoto IGN, OpenStreetMap en secours) : d'ou tile.openstreetmap.org dans
     connect-src, en plus d'img-src. valhalla1.openstreetmap.de : itineraire de
     secours (FOSSGIS) quand la Geoplateforme ne repond pas (vu le 24/10/2026).
+    sedeaplicaciones.minetur.gob.es : prix des carburants en Espagne (ministere espagnol,
+    donnees ouvertes, CORS *), charges par province quand la carte touche l'Espagne.
     Une chaine tierce (flux des stations, URL #veh=) qui reussirait malgre
     l'echappement a injecter un <script> ne s'executerait pas, et ne pourrait
     rien exfiltrer ailleurs que vers ces hotes."""
@@ -124,7 +130,7 @@ def csp_meta(html):
             "img-src 'self' data: blob: https://data.geopf.fr https://tile.openstreetmap.org; "
             "connect-src 'self' https://data.economie.gouv.fr https://data.geopf.fr "
             "https://api-adresse.data.gouv.fr https://tile.openstreetmap.org "
-            "https://valhalla1.openstreetmap.de; "
+            "https://valhalla1.openstreetmap.de " + API_ES_HOTE + "; "
             "base-uri 'none'; form-action 'self'\">")
 
 
@@ -183,10 +189,13 @@ def main():
     for token, val in (("__LAT__", repr(a.lat)), ("__LON__", repr(a.lon)),
                        ("__NOM__", a.nom), ("__RAYON__", str(a.rayon)),
                        ("__SELECT__", SELECT), ("__API__", API),
+                       ("__ES_PROVINCIAS__", json.dumps(json.loads(lire("es-provincias.json")),
+                                                        ensure_ascii=False, separators=(",", ":"))),
                        ("__SNAPDATE__", datetime.now().strftime("%d/%m/%Y %H:%M")),
                        ("__BUILD__", datetime.now().strftime("%Y%m%d-%H%M%S")),
                        ("__SNAP__", json.dumps(rows, ensure_ascii=False))):
         html = html.replace(token, val)
+    assert "__ES_PROVINCIAS__" not in html, "table des provinces espagnoles non inlinee"
     html = html.replace("__CSP__", csp_meta(html))   # en dernier : empreintes du HTML final
 
     with open(out, "w", encoding="utf-8") as f:

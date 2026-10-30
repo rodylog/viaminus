@@ -266,6 +266,9 @@ const COURT = {e10:'E10', sp98:'SP98', sp95:'SP95', e85:'E85',
 // Libelles tels qu'ils apparaissent dans carburants_rupture_* du flux officiel.
 const RUPT = {e10:'e10', sp98:'sp98', sp95:'sp95', e85:'e85',
               gazole:'gazole', gplc:'gplc'};
+// Pays : badge sobre « ES » (liste, fiche, plan) pour les stations espagnoles (src/es.js) ;
+// rien pour la France. Texte seulement, pas d'image.
+const badgePays = s => s.pays ? `<span class="badge badge-pays" title="Station espagnole — prix du ministère espagnol">${esc(s.pays)}</span> ` : '';
 // Corrections faites sur place par l'utilisateur (Eric, 26/10/2026 : Lodeve, E85 annonce par
 // le flux officiel, pompe vide ; « ajoute cette fonction de modifier le prix ou mettre en
 // rupture »). Par station et par carburant : {t, prix?} ou {t, vide: true}. Gardees sur cet
@@ -344,7 +347,10 @@ function pick(s, sel){
 
 // Bornes du secteur pour une selection donnee (un seul carburant, ou la somme).
 function bornes(sel){
-  const px = REF_ROWS.map(s => pick(s, sel)).filter(Boolean)
+  // Secteur = referentiel francais (60 km du repere) + stations espagnoles chargees a 60 km :
+  // le flux francais ignore l'Espagne, sans cela un ecran espagnol n'aurait jamais de rouge.
+  const px = REF_ROWS.concat(DATA.filter(s => s.pays === 'ES' && s.d <= 60))
+                     .map(s => pick(s, sel)).filter(Boolean)
                      .map(v => v.p).sort((a,b) => a-b);
   if(px.length < 8) return null;
   const Q = f => px[Math.round(f*(px.length-1))];
@@ -436,7 +442,8 @@ function rendu(){
     $('compte').textContent =
       `${n} station${n>1?'s':''} ${ROUTE ? 'sur le trajet, dans la zone affichée' : 'dans la zone affichée'}` + t +
       (nKo ? ` · ${nKo} en rupture (en gris)` : '') +
-      (tronque ? ` · ${tronque} de plus non chargée${tronque>1?'s':''} (plafond ${PLAFOND})` : '');
+      (tronque ? ` · ${tronque} de plus non chargée${tronque>1?'s':''} (plafond ${PLAFOND})` : '') +
+      (ES_INFO ? ` · ${ES_INFO}` : '');
     $('titreStations').textContent = `Stations du trajet (${n})`;
     majEtat();
   };
@@ -695,7 +702,7 @@ function rendu(){
         }
         return li;
       };
-      const nomVille = s => brut(s.ville);
+      const nomVille = s => brut(s.ville) + (s.pays ? ` (${brut(s.pays)})` : '');
       // Date du prix (des 1 jour ; rouge a 4 jours, comme la fiche), alerte « prix fige », et
       // secours : si la pompe est vide, la station la plus proche atteignable avec ce qui reste
       // (route ~ 1,3 x vol d'oiseau), prix figes evites ; « Pompe vide ? » refait le plan sans elle.
@@ -906,9 +913,9 @@ function rendu(){
       (et ? `<span class="badge">${ico('pompe')} Étape${et.length > 1 ? 's' : ''} ${et.join(' · ')}</span> ` : mc ? `<span class="badge badge-min">Moins chère</span> ` : '');
     const li = document.createElement('li');
     li.innerHTML = `<button type="button" class="carte${et || mc || ex ? ' etape' : ''}" aria-haspopup="dialog">`+
-      `<span class="ville">${badges}${s.ville} <span class="cp">${s.cp}</span></span>`+
+      `<span class="ville">${badges}${badgePays(s)}${s.ville} <span class="cp">${s.cp}</span></span>`+
       `<span class="prix">${prix}</span>`+
-      `<span class="adr">${s.adresse}${s.auto ? ' · 24/24' : ''}</span>`+
+      `<span class="adr">${s.enseigne ? `${s.enseigne} · ` : ''}${s.adresse}${s.auto ? ' · 24/24' : s.horario ? ` · ${resumerHorario(s.horario)}` : ''}</span>`+
       `<span class="meta"><span>${(ROUTE ? s.ecart : s.d).toFixed(1)} km${ROUTE ? ' du trajet' : ''}</span>`+
       (ROUTE && s.kmr != null ? `<span>km ${Math.round(s.kmr)}</span>` : '')+
       `<span>relevé ${jour(v.maj)}</span></span></button>`;
@@ -965,12 +972,18 @@ function ouvrirStation(o, origine){
   const {s, v} = o;
   STATION = s;
   const utilises = v ? v.lignes.map(l => l.ref) : [];
-  $('fsTitre').innerHTML = `${s.ville} <span class="cp" style="font-weight:400;color:var(--muted)">${s.cp}</span>`;
-  $('fsAdresse').innerHTML = s.adresse || '<i>adresse non renseignée</i>';
+  $('fsTitre').innerHTML = `${badgePays(s)}${s.ville} <span class="cp" style="font-weight:400;color:var(--muted)">${s.cp}</span>`;
+  $('fsAdresse').innerHTML = (s.enseigne ? `<b>${s.enseigne}</b> · ` : '') + (s.adresse || '<i>adresse non renseignée</i>');
+  // Station espagnole : horaires resumes et ouvert / ferme a l'heure qu'il est (src/es.js) ;
+  // la date de ses prix est l'horodatage global du fichier du ministere, pas un releve par station.
+  const ouvert = s.horario ? ouvertA(s.horario, new Date()) : null;
+  const majES = s.pays === 'ES' ? Object.values(s.off.maj).find(Boolean) : null;
   $('fsInfos').innerHTML =
-    (s.auto ? `<span>${ico('horloge')} automate 24 h/24</span>` : '') +
+    (s.auto ? `<span>${ico('horloge')} automate 24 h/24</span>`
+     : s.horario ? `<span>${ico('horloge')} ${resumerHorario(s.horario)}${ouvert === true ? ' · ouvert en ce moment' : ouvert === false ? ' · <b class="ferme">fermé à cette heure</b>' : ''}</span>` : '') +
     `<span>${ico('epingle')} ${ROUTE && s.ecart != null ? `${s.ecart.toFixed(1)} km du trajet · km ${Math.round(s.kmr)}` : `${s.d.toFixed(1)} km du repère`}</span>` +
-    (s.rupture || aSignalement(s) ? `<span class="ko-lbl">${ico('alerte')} rupture : ${ruptureTxt(s)}</span>` : '');
+    (s.rupture || aSignalement(s) ? `<span class="ko-lbl">${ico('alerte')} rupture : ${ruptureTxt(s)}</span>` : '') +
+    (s.pays === 'ES' ? `<span>${ico('info')} Espagne : prix du fichier du ministère${majES ? ` du ${quand(majES).txt}` : ''} (une date pour toutes les stations)</span>` : '');
   // Chaque carburant : « Corriger » ouvre, sous la ligne, le prix vu a la pompe, « Pompe vide »
   // et « Revenir au déclaré » (corrections gardees sur cet appareil, voir corriger()).
   $('fsCarbs').innerHTML = FUELS.filter(([k]) => s.prix[k] != null).map(([k,l]) => {
@@ -1269,6 +1282,67 @@ function clauseVue(){
     : ` and ${k}_prix is not null`).join('');
 }
 
+// ---------- Espagne (src/es.js) ----------
+// Quand l'emprise (ou les emprises du couloir du trajet) croise une province espagnole, ses
+// stations sont chargees PAR PROVINCE (FiltroProvincia/{id}, quelques centaines de ko), au plus
+// ES_MAX_PROVINCES a la fois (au-dela : « zoomez »), cache memoire ES_CACHE_MS par province,
+// abandon des reponses obsoletes par `seq` comme le flux francais. Elles entrent dans DATA
+// avec exactement la forme des francaises (normaliserStationES) : liste, carte, fiche, tri,
+// plafond commun et plan de pleins (plan.js, inchange) ne font aucune difference.
+// Echec reseau : bandeau discret dans l'etat (« prix espagnols indisponibles »), le reste continue.
+const ES_CACHE = new Map();   // id de province -> {t, stations normalisees}
+let ES_KO = false;            // dernier chargement espagnol en echec (au moins une province)
+let ES_INFO = '';             // compteur : provinces chargees, « zoomez »
+const titreES = n => String(n).toLowerCase().replace(/(^|[^a-zà-ÿ])([a-zà-ÿ])/g, (m, a, b) => a + b.toUpperCase());
+async function chargerProvinceES(id){
+  const c = ES_CACHE.get(id);
+  if(c && Date.now() - c.t < ES_CACHE_MS) return c.stations;
+  const r = await fetch(ES_URL + id, {signal: AbortSignal.timeout(20000)});
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json();
+  if(!j || j.ResultadoConsulta !== 'OK' || !Array.isArray(j.ListaEESSPrecio)) throw new Error('réponse espagnole inattendue');
+  const stations = j.ListaEESSPrecio.map(o => normaliserStationES(o, j.Fecha)).filter(Boolean);
+  ES_CACHE.set(id, {t: Date.now(), stations});
+  return stations;
+}
+// Copie par chargement (le cache reste vierge) : distance au repere du moment, corrections locales.
+const copieES = s => appliquerCorr(Object.assign({}, s,
+  {prix: Object.assign({}, s.off.prix), maj: Object.assign({}, s.off.maj), corr: {}, d: dist(s.la, s.lo)}));
+async function chargerES(zones){
+  ES_KO = false; ES_INFO = '';
+  const cumul = new Map();   // recouvrement cumule sur toutes les zones (couloir en plusieurs emprises)
+  zones.forEach(z => recouvrementsProvinces(ES_PROVINCIAS, z).forEach(r => {
+    const c = cumul.get(r.id) || {id: r.id, aire: 0, douteuse: r.douteuse};
+    c.aire += r.aire; cumul.set(r.id, c);
+  }));
+  if(!cumul.size) return [];
+  // Emprise trop large (France entiere) : l'Espagne n'est pas chargee, l'ecran le dit.
+  if(zones.some(z => z.n - z.s > ES_EMPRISE_MAX)){ ES_INFO = 'Espagne : zoomez pour charger les prix espagnols'; return []; }
+  const ids = [...cumul.values()].sort((a, b) => (a.douteuse - b.douteuse) || (b.aire - a.aire)).map(c => c.id);
+  const pris = ids.slice(0, ES_MAX_PROVINCES);
+  const noms = pris.map(id => esc(titreES(ES_PROVINCIAS[id][0]))).join(', ');
+  ES_INFO = ids.length > pris.length
+    ? `Espagne : ${pris.length} provinces chargées sur ${ids.length} (${noms}) — zoomez pour les autres`
+    : `Espagne : ${noms}`;
+  const res = await Promise.allSettled(pris.map(chargerProvinceES));
+  ES_KO = res.some(r => r.status === 'rejected');
+  const vus = new Set();
+  return res.flatMap(r => r.status === 'fulfilled' ? r.value : [])
+    .filter(s => zones.some(z => dansEmprise(z, s.la, s.lo)) && !vus.has(s.id) && vus.add(s.id))
+    .map(copieES);
+}
+// Fusion : memes objets, meme tableau. Plafond commun (PLAFOND par zone) : au-dela, les
+// espagnoles les plus eloignees du repere sont laissees et comptees dans `tronque`.
+function fusionnerES(fr, es, nZones){
+  if(!es.length) return fr;
+  const ids = new Set(fr.map(s => s.id));
+  const place = Math.max(0, PLAFOND * nZones - fr.length);
+  const tri = es.filter(s => !ids.has(s.id)).sort((a, b) => a.d - b.d);
+  tronque += Math.max(0, tri.length - place);
+  return fr.concat(tri.slice(0, place));
+}
+const etatES = () => ES_KO ? ' · <span class="ko">prix espagnols indisponibles</span>' : '';
+
 // Stations en rupture du carburant choisi. Le flux vide le prix pendant la rupture :
 // la station sort de la requete principale et semblait « oubliee ». Constate le
 // 26/10/2026 : Le Bosc (A75), E85 en rupture depuis le 04/09, Waze affichait encore
@@ -1337,6 +1411,8 @@ async function charger(){
   const clause = clauseVue();
   // Accessoire et en parallele : une panne ici ne bloque jamais les prix.
   const ko = chargerRuptures(zones, choix()).catch(() => []);
+  // Espagne, en parallele et a part : une panne la ne touche ni les prix francais ni le repli.
+  const es = chargerES(zones).catch(() => { ES_KO = true; return []; });
   etatPrix = 'chargement…'; majEtat();
   try{
     let rows = [], reste = 0;
@@ -1357,20 +1433,25 @@ async function charger(){
     const vus = new Set();
     rows = rows.filter(r => !vus.has(r.id) && vus.add(r.id));   // emprises jointives
     tronque = reste;
-    DATA = normalise(rows);
+    const esStations = await es;
+    if(mien !== seq) return;
+    DATA = fusionnerES(normalise(rows), esStations, zones.length);
     if(ROUTE) DATA = DATA.filter(situerSurTrace);
     const kos = await ko;
     if(mien !== seq) return;
     RUPTURES = ROUTE ? kos.filter(situerSurTrace) : kos;
     etatPrix = 'prix en direct · ' + new Date().toLocaleString('fr-FR',
-      {weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+      {weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + etatES();
   }catch(e){
     if(mien !== seq) return;
     const vis = emprise();
-    DATA = normalise(SNAPSHOT).filter(s => dansEmprise(vis, s.la, s.lo));
-    RUPTURES = [];
     tronque = 0;
-    etatPrix = '<span class="ko">hors ligne</span> — relevé du ' + SNAP_DATE;
+    // Flux francais muet : snapshot de repli ; les prix espagnols, s'ils sont arrives, restent.
+    const esStations = await es;
+    if(mien !== seq) return;
+    DATA = fusionnerES(normalise(SNAPSHOT).filter(s => dansEmprise(vis, s.la, s.lo)), esStations, zones.length);
+    RUPTURES = [];
+    etatPrix = '<span class="ko">hors ligne</span> — relevé du ' + SNAP_DATE + etatES();
   }
   rendu();
 }

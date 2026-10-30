@@ -344,6 +344,13 @@ __APP_CSS__
       <li><b>Prix en direct</b> : flux instantané officiel du ministère de l'Économie (déclaration obligatoire des
         stations, mise à jour ~10 min), rechargé à chaque ouverture et à chaque déplacement de la carte — les
         stations suivent la zone affichée (400 au maximum ; au-delà, le compteur le signale).</li>
+      <li><b>Espagne</b> : dès que la carte ou le trajet touche l'Espagne, les stations espagnoles (badge
+        <span class="badge badge-pays">ES</span>, enseigne, horaires) s'ajoutent aux françaises — liste, carte, fiche et plan de
+        pleins : un Perpignan → Barcelone fait le plein du bon côté de la frontière. Prix du ministère espagnol,
+        chargés province par province (trois à la fois au plus : au-delà, zoomez), mis à jour toutes les 30 min ;
+        la date affichée est celle du fichier, commune à toutes les stations. Gazole = Gasóleo A, SP95 = Gasolina 95 E5,
+        SP98 = Gasolina 98 E5, E10 = Gasolina 95 E10, GPLc = GLP ; l'E85 n'existe presque pas en Espagne (2 stations
+        le 28/10/2026). Pas de notion de rupture dans le flux espagnol.</li>
       <li><b>Couleurs</b> : vert = la moins chère affichée (ex æquo compris), bleu = dans la norme, rouge = les 10 %
         les plus chères du secteur (60 km autour du repère), noir = repères du plan. Avec plusieurs carburants cochés,
         chaque carburant est coloré sur sa propre échelle et le classement se fait sur la somme ; « SP le moins cher »
@@ -385,6 +392,9 @@ __APP_CSS__
     <ul class="puces">
       <li>Prix : <a href="https://data.economie.gouv.fr/explore/dataset/prix-des-carburants-en-france-flux-instantane-v2/" target="_blank" rel="noopener">data.economie.gouv.fr</a>
         (Licence Ouverte) — mêmes données que prix-carburants.gouv.fr.</li>
+      <li>Prix des carburants en Espagne : Ministerio para la Transición Ecológica y el Reto Demográfico,
+        <a href="https://geoportalgasolineras.es" target="_blank" rel="noopener">Geoportal Gasolineras</a>, données ouvertes
+        (API <code>sedeaplicaciones.minetur.gob.es</code>, par province).</li>
       <li>Fond de carte : Plan IGN et orthophotos © IGN — Géoplateforme ; OpenStreetMap (© les contributeurs)
         en secours seulement si l'IGN ne répond pas.</li>
       <li>Itinéraires : Géoplateforme IGN ; en secours, Valhalla public de FOSSGIS e.V. (données
