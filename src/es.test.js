@@ -6,7 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {nombreES, fechaISO, normaliserStationES, ouvertA, resumerHorario, provincesPourEmprise, enEspagne,
-       recouvrementsProvinces, ES_PROVINCIAS, ES_CLES} = require('./es.js');
+       recouvrementsProvinces, ES_PROVINCIAS, ES_CLES, ES_ENVELOPPE} = require('./es.js');
 const ECH = require('./fixtures/es-echantillon-girona.json');
 
 // Station francaise FACTICE construite comme dans app.js (normalise()) : memes cles, dans le
@@ -120,15 +120,41 @@ test('forme identique a une station francaise : memes cles, plus pays, enseigne,
   }
 });
 
-test('Tipo Venta != P (reserve) -> null ; coordonnees absentes ou hors Espagne -> null', () => {
-  const base = ECH.ListaEESSPrecio[0];
-  assert.strictEqual(normaliserStationES(Object.assign({}, base, {'Tipo Venta': 'R'}), ECH.Fecha), null);
-  assert.strictEqual(normaliserStationES(Object.assign({}, base, {'Tipo Venta': ''}), ECH.Fecha), null);
-  assert.strictEqual(normaliserStationES(Object.assign({}, base, {Latitud: ''}), ECH.Fecha), null);
-  assert.strictEqual(normaliserStationES(Object.assign({}, base, {Latitud: '0,000000', 'Longitud (WGS84)': '0,000000'}), ECH.Fecha), null);
-  // lat/lon inverses (vu dans le fichier du 28/10 : Pontevedra) : hors enveloppe, ecartee.
-  assert.strictEqual(normaliserStationES(Object.assign({}, base, {Latitud: '-8,660000', 'Longitud (WGS84)': '42,040000'}), ECH.Fecha), null);
-  assert.strictEqual(normaliserStationES(null, ECH.Fecha), null);
+test('Tipo Venta != P (reserve) -> null, comptee « reservees »', () => {
+  const base = ECH.ListaEESSPrecio[0], ignorees = {};
+  assert.strictEqual(normaliserStationES(Object.assign({}, base, {'Tipo Venta': 'R'}), ECH.Fecha, {ignorees}), null);
+  assert.strictEqual(normaliserStationES(Object.assign({}, base, {'Tipo Venta': ''}), ECH.Fecha, {ignorees}), null);
+  assert.deepStrictEqual(ignorees, {reservees: 2});
+  assert.strictEqual(normaliserStationES(null, ECH.Fecha, {ignorees}), null);
+  assert.deepStrictEqual(ignorees, {reservees: 2});   // objet absent : rien a compter
+});
+
+test('coordonnee a 0 (latitude, longitude ou les deux) = manquante : station ignoree et comptee', () => {
+  // Cause des boites degenerees de la table v1 (Barcelona, Madrid, Murcia, Cantabria : stations a 0).
+  const base = ECH.ListaEESSPrecio[0], ignorees = {coords: 0};
+  for(const c of [{Latitud: '0,000000'}, {'Longitud (WGS84)': '0,000000'}, {Latitud: '0', 'Longitud (WGS84)': '0'}, {Latitud: ''}, {'Longitud (WGS84)': ''}])
+    assert.strictEqual(normaliserStationES(Object.assign({}, base, c), ECH.Fecha, {ignorees}), null, JSON.stringify(c));
+  assert.strictEqual(ignorees.coords, 5);
+  assert.strictEqual(ignorees.reservees, undefined);
+  // Sans compteur fourni : null quand meme, sans erreur.
+  assert.strictEqual(normaliserStationES(Object.assign({}, base, {Latitud: '0,0'}), ECH.Fecha), null);
+});
+
+test('coordonnee hors de l\'enveloppe espagnole (lat 27-44, lon -19-5) = manquante : ignoree et comptee', () => {
+  const base = ECH.ListaEESSPrecio[0], ignorees = {};
+  // lat/lon inverses (cause de la boite v1 de Pontevedra), Paris, Atlantique, Canaries trop a l'ouest.
+  for(const c of [{Latitud: '-8,660000', 'Longitud (WGS84)': '42,040000'}, {Latitud: '48,856600', 'Longitud (WGS84)': '2,352200'},
+                  {Latitud: '26,900000'}, {'Longitud (WGS84)': '-19,100000'}, {'Longitud (WGS84)': '5,100000'}, {Latitud: '44,100000'}])
+    assert.strictEqual(normaliserStationES(Object.assign({}, base, c), ECH.Fecha, {ignorees}), null, JSON.stringify(c));
+  assert.deepStrictEqual(ignorees, {coords: 6});
+  // Aux bornes : gardees (Canaries 27,71 / -18,03 ; Ceuta 35,9 / -5,3 ; Girona 42,48 / 3,24).
+  for(const c of [{Latitud: '27,710000', 'Longitud (WGS84)': '-18,030000'}, {Latitud: '35,900000', 'Longitud (WGS84)': '-5,300000'},
+                  {Latitud: '42,480000', 'Longitud (WGS84)': '3,240000'}])
+    assert.ok(normaliserStationES(Object.assign({}, base, c), ECH.Fecha, {ignorees}), JSON.stringify(c));
+  assert.deepStrictEqual(ignorees, {coords: 6});
+  // Les 3 stations de l'echantillon passent toutes.
+  assert.strictEqual(ECH.ListaEESSPrecio.map(o => normaliserStationES(o, ECH.Fecha, {ignorees})).filter(Boolean).length, 3);
+  assert.deepStrictEqual(ignorees, {coords: 6});
 });
 
 test('echappement a l\'ingestion : une enseigne ou une adresse piegee est rendue inerte', () => {
@@ -215,13 +241,17 @@ test('emprise a Lyon : aucune province', () => {
   assert.strictEqual(enEspagne(bbox), false);
 });
 
-test('tri par recouvrement decroissant, bornes douteuses apres les sures', () => {
-  // Emprise sur la frontiere Girona / Barcelona : les deux croisent ; Barcelona (bornes a 0,0 dans
-  // le fichier du 28/10) est marquee douteuse et passe apres Girona quel que soit son recouvrement.
+test('tri par recouvrement decroissant ; garde-fou « douteuse » : aucune dans la table v2', () => {
+  // Emprise sur la frontiere Girona / Barcelona : les deux croisent, Girona recouvre plus (0,37 x 0,60
+  // contre 0,40 x 0,47) et passe devant ; aucune des deux n'est douteuse (table v2).
   const r = recouvrementsProvinces(ES_PROVINCIAS, {s: 41.6, n: 42.0, w: 2.3, e: 2.9});
   assert.ok(r.some(x => x.id === '17' && !x.douteuse));
-  assert.ok(r.some(x => x.id === '08' && x.douteuse));
+  assert.ok(r.some(x => x.id === '08' && !x.douteuse));
   assert.ok(r.findIndex(x => x.id === '17') < r.findIndex(x => x.id === '08'));
+  // Une boite etiree jusqu'a l'equateur (table v1 de Barcelona) serait marquee douteuse et classee apres.
+  const v1 = Object.assign({}, ES_PROVINCIAS, {'08': ['BARCELONA', 800, 0.0, 42.25, 0.0, 2.76]});
+  const r1 = recouvrementsProvinces(v1, {s: 41.6, n: 42.0, w: 2.3, e: 2.9});
+  assert.ok(r1.find(x => x.id === '08').douteuse && r1[r1.length - 1].id === '08');
   // Deux provinces sures : la plus recouverte d'abord (Gipuzkoa devant Navarra, pour une emprise sur Saint-Sebastien).
   const ids = provincesPourEmprise(ES_PROVINCIAS, {s: 43.2, n: 43.35, w: -2.1, e: -1.8});
   assert.strictEqual(ids[0], '20');
@@ -237,4 +267,20 @@ test('table des provinces : 52 entrees, forme [nom, n, latMin, latMax, lonMin, l
     assert.ok(s <= no && w <= e);
   }
   assert.strictEqual(ES_PROVINCIAS['17'][0], 'GIRONA');
+});
+
+test('table v2 : aucune boite ne touche 0, toutes dans l\'enveloppe espagnole, aucune douteuse', () => {
+  // Table recalculee le 30/10/2026 sur 11 422 stations (1er-99e centile par axe, marge 0,05°) :
+  // plus de boite etiree jusqu'a l'equateur par une station a 0 ou aberrante.
+  for(const [id, [nom, , s, n, w, e]] of Object.entries(ES_PROVINCIAS)){
+    for(const b of [s, n, w, e]) assert.notStrictEqual(b, 0, `${id} ${nom} : borne a 0`);
+    assert.ok(s >= ES_ENVELOPPE.s && n <= ES_ENVELOPPE.n && w >= ES_ENVELOPPE.w && e <= ES_ENVELOPPE.e, `${id} ${nom} hors enveloppe`);
+    assert.ok((n - s) * (e - w) < 5, `${id} ${nom} : boite de ${((n - s) * (e - w)).toFixed(1)} deg²`);
+    assert.ok(n - s > 0.05 && e - w > 0.05, `${id} ${nom} : boite plate`);
+  }
+  assert.deepStrictEqual(ES_PROVINCIAS['08'].slice(2), [41.17, 42.15, 1.49, 2.77]);
+  assert.deepStrictEqual(ES_PROVINCIAS['36'].slice(2), [41.87, 42.82, -8.91, -7.92]);
+  // Pontevedra ne croise plus Perpignan, Cantabria plus Biarritz (v1 : requetes inutiles).
+  assert.ok(!provincesPourEmprise(ES_PROVINCIAS, {s: 42.65, n: 42.75, w: 2.85, e: 2.95}).includes('36'));
+  assert.deepStrictEqual(provincesPourEmprise(ES_PROVINCIAS, {s: 43.43, n: 43.53, w: -1.61, e: -1.51}), []);
 });

@@ -28,10 +28,10 @@ const ES_EMPRISE_MAX = 3;          // degres de latitude : au-dela, trop large p
 // Table des 52 provinces : id -> [nom, nb de stations, latMin, latMax, lonMin, lonMax], calculee
 // le 28/10/2026 depuis le fichier complet (src/es-provincias.json). Sous Node : lue du fichier ;
 // dans la page : inlinee par generate.py a la place du jeton (ci-dessous).
-// Cinq entrees ont des bornes degenerees (08 Barcelona, 28 Madrid, 30 Murcia, 39 Cantabria :
-// une station a 0,0 ; 36 Pontevedra : latitude et longitude inversees) : elles croisent des
-// emprises qu'elles ne devraient pas. recouvrementsProvinces les marque `douteuse` et les classe
-// apres les autres ; a recalculer en ecartant les stations hors de l'enveloppe (voir ES_ENVELOPPE).
+// Table v2 (Eric, 30/10/2026) : bornes ROBUSTES calculees sur 11 422 stations (1er-99e centile
+// par axe, marge 0,05°). La v1 (min/max bruts) etirait cinq boites jusqu'a l'equateur : stations
+// avec latitude ou longitude a 0 (Barcelona, Madrid, Murcia, Cantabria) et valeurs aberrantes
+// (Pontevedra). Les memes stations sont ecartees a l'ingestion (normaliserStationES, ES_ENVELOPPE).
 const ES_PROVINCIAS = (typeof module !== 'undefined' && module.exports)
   ? require('./es-provincias.json') : __ES_PROVINCIAS__;
 
@@ -46,9 +46,12 @@ const ES_CARBURANTS = {
   gplc:   'Precio Gases licuados del petróleo',
 };
 const ES_CLES = ['e85', 'e10', 'sp98', 'sp95', 'gazole', 'gplc'];   // meme ordre que FUELS (app.js)
-// Enveloppe de l'Espagne, Canaries, Ceuta et Melilla comprises : une station hors de la
-// (coordonnees a 0, lat/lon inverses) n'est pas placable et serait fausse sur la carte.
-const ES_ENVELOPPE = {s: 27, n: 44.5, w: -18.5, e: 4.5};
+// Enveloppe de l'Espagne, Canaries, Ceuta et Melilla comprises (latitude 27 a 44, longitude
+// -19 a 5) : une coordonnee a 0 ou hors de l'enveloppe est traitee comme MANQUANTE (station
+// ignoree et comptee) — vu dans le fichier complet du 30/10/2026, elle serait fausse sur la carte.
+const ES_ENVELOPPE = {s: 27, n: 44, w: -19, e: 5};
+const coordsES = (la, lo) => la != null && lo != null && la !== 0 && lo !== 0 &&
+  la >= ES_ENVELOPPE.s && la <= ES_ENVELOPPE.n && lo >= ES_ENVELOPPE.w && lo <= ES_ENVELOPPE.e;
 
 // Echappement HTML a l'ingestion, comme app.js (esc) : tout ce qui vient du flux (noms,
 // adresses, enseignes, horaires) est rendu sain ici, une fois.
@@ -73,13 +76,16 @@ function fechaISO(fecha){
 }
 
 // Station espagnole -> forme d'une station francaise (app.js, normalise()). null si la station
-// n'est pas en vente au public (`Tipo Venta` != P) ou n'est pas placable.
+// n'est pas en vente au public (`Tipo Venta` != P) ou si ses coordonnees manquent (absentes, a 0,
+// hors de l'enveloppe espagnole) ; dans ce dernier cas opts.ignorees.coords est incremente.
 // opts.dist(la, lo) : distance au repere en km (app.js), 0 a defaut (module pur).
+// opts.ignorees : compteur {coords, reservees} alimente par l'appelant (facultatif).
 function normaliserStationES(o, fecha, opts = {}){
-  if(!o || o['Tipo Venta'] !== 'P') return null;
+  const compter = k => { if(opts.ignorees) opts.ignorees[k] = (opts.ignorees[k] || 0) + 1; };
+  if(!o) return null;
+  if(o['Tipo Venta'] !== 'P'){ compter('reservees'); return null; }
   const la = nombreES(o.Latitud), lo = nombreES(o['Longitud (WGS84)']);
-  if(la == null || lo == null) return null;
-  if(!(la >= ES_ENVELOPPE.s && la <= ES_ENVELOPPE.n && lo >= ES_ENVELOPPE.w && lo <= ES_ENVELOPPE.e)) return null;
+  if(!coordsES(la, lo)){ compter('coords'); return null; }
   const maj = fechaISO(fecha);
   const prix = {}, dates = {}, depuis = {}, kotype = {};
   ES_CLES.forEach(k => {
@@ -164,8 +170,8 @@ function resumerHorario(horario){
 
 // ---- Provinces croisees par une emprise {s, n, w, e} (app.js, emprise()) ----
 // -> [{id, aire (deg² de recouvrement), douteuse}], tries : bornes fiables d'abord, puis
-// recouvrement decroissant. `douteuse` : boite de plus de 30 deg² (une province reelle tient
-// en moins de 5), signe d'une station a 0,0 ou inversee dans le fichier source.
+// recouvrement decroissant. `douteuse` (garde-fou, plus aucune dans la table v2) : boite de plus
+// de 30 deg² alors qu'une province reelle tient en moins de 5 — signe d'une table mal calculee.
 function recouvrementsProvinces(table, bbox){
   const res = [];
   for(const id of Object.keys(table)){
@@ -192,4 +198,4 @@ function enEspagne(bbox, table = ES_PROVINCIAS){
 if(typeof module !== 'undefined' && module.exports)
   module.exports = {nombreES, fechaISO, normaliserStationES, ouvertA, resumerHorario, reglesHorario,
                     recouvrementsProvinces, provincesPourEmprise, enEspagne,
-                    ES_PROVINCIAS, ES_CARBURANTS, ES_CLES, ES_URL, ES_HOTE, ES_MAX_PROVINCES, ES_CACHE_MS, ES_EMPRISE_MAX, ES_ENVELOPPE};
+                    ES_PROVINCIAS, ES_CARBURANTS, ES_CLES, ES_URL, ES_HOTE, ES_MAX_PROVINCES, ES_CACHE_MS, ES_EMPRISE_MAX, ES_ENVELOPPE, coordsES};

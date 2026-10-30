@@ -1301,9 +1301,17 @@ async function chargerProvinceES(id){
   if(!r.ok) throw new Error('HTTP ' + r.status);
   const j = await r.json();
   if(!j || j.ResultadoConsulta !== 'OK' || !Array.isArray(j.ListaEESSPrecio)) throw new Error('réponse espagnole inattendue');
-  const stations = j.ListaEESSPrecio.map(o => normaliserStationES(o, j.Fecha)).filter(Boolean);
-  ES_CACHE.set(id, {t: Date.now(), stations});
+  // Stations ignorees et comptees : coordonnees manquantes (absentes, a 0, hors de l'Espagne —
+  // vu dans le fichier complet du 30/10/2026) et vente reservee (Tipo Venta != P).
+  const ignorees = {coords: 0, reservees: 0};
+  const stations = j.ListaEESSPrecio.map(o => normaliserStationES(o, j.Fecha, {ignorees})).filter(Boolean);
+  ES_CACHE.set(id, {t: Date.now(), stations, ignorees});
   return stations;
+}
+// « 3 sans position ignorées » sur les provinces chargees (cache compris).
+function ignoreesES(ids){
+  const n = ids.reduce((t, id) => t + ((ES_CACHE.get(id) || {}).ignorees || {}).coords || 0, 0);
+  return n ? ` · ${n} sans position ignorée${n > 1 ? 's' : ''}` : '';
 }
 // Copie par chargement (le cache reste vierge) : distance au repere du moment, corrections locales.
 const copieES = s => appliquerCorr(Object.assign({}, s,
@@ -1326,6 +1334,7 @@ async function chargerES(zones){
     : `Espagne : ${noms}`;
   const res = await Promise.allSettled(pris.map(chargerProvinceES));
   ES_KO = res.some(r => r.status === 'rejected');
+  ES_INFO += ignoreesES(pris);
   const vus = new Set();
   return res.flatMap(r => r.status === 'fulfilled' ? r.value : [])
     .filter(s => zones.some(z => dansEmprise(z, s.la, s.lo)) && !vus.has(s.id) && vus.add(s.id))

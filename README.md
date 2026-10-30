@@ -211,11 +211,12 @@ sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
   l'horodatage global du fichier du ministère, pas un relevé par station ; pas de notion de
   rupture dans le flux espagnol ; trois provinces chargées à la fois au plus (au-delà, zoomer) ;
   l'Espagne n'est pas chargée sur une emprise de plus de 3° de latitude (France entière).
-  Dans `src/es-provincias.json`, cinq boîtes englobantes sont dégénérées (08 Barcelona, 28 Madrid,
-  30 Murcia, 39 Cantabria : une station à 0,0 dans le fichier source ; 36 Pontevedra : latitude et
-  longitude inversées) : `es.js` les classe après les autres, mais elles provoquent des requêtes
-  inutiles près de la frontière — à recalculer en écartant les stations hors de l'enveloppe de
-  l'Espagne. Le snapshot de repli embarqué reste français.
+  `src/es-provincias.json` (v2, 30/10/2026) : boîtes robustes calculées sur 11 422 stations
+  (1ᵉʳ–99ᵉ centile par axe, marge 0,05°) — le fichier du ministère contient des stations à
+  latitude ou longitude 0 et des valeurs aberrantes, qui étiraient la première table jusqu'à
+  l'équateur ; ces stations sont ignorées à l'ingestion (coordonnée à 0 ou hors de l'enveloppe
+  latitude 27–44, longitude −19–5) et comptées (« n sans position ignorées »). Le snapshot de
+  repli embarqué reste français.
 - `file://` : Firefox y refuse la géolocalisation et cloisonne le stockage par
   fichier — héberger en https règle les deux.
 - 400 stations chargées par zone au maximum (annoncé à l'écran quand ça tronque).
