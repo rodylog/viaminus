@@ -119,7 +119,7 @@ __APP_CSS__
       <section id="secStations" aria-labelledby="titreStations">
         <div class="stations-tete">
           <h3 id="titreStations">Stations</h3>
-          <button class="replier" id="replier" type="button" aria-expanded="true" aria-controls="listeZone" hidden>
+          <button class="replier" id="replier" type="button" aria-expanded="true" aria-controls="listeZone" aria-label="Replier ou déplier la liste des stations" hidden>
             <span data-ico="bas"></span></button>
         </div>
         <div id="listeZone">
@@ -146,7 +146,7 @@ __APP_CSS__
       <section id="secBornes" aria-labelledby="titreBornes" hidden>
         <div class="stations-tete">
           <h3 id="titreBornes"><span data-ico="eclair"></span> Bornes de recharge</h3>
-          <button class="replier" id="replierBornes" type="button" aria-expanded="true" aria-controls="bornesZone">
+          <button class="replier" id="replierBornes" type="button" aria-expanded="true" aria-controls="bornesZone" aria-label="Replier ou déplier la liste des bornes">
             <span data-ico="bas"></span></button>
         </div>
         <div id="bornesZone">
@@ -170,7 +170,7 @@ __APP_CSS__
             <label class="case"><input type="checkbox" id="bOuvert"> Ouvert maintenant</label>
           </div>
           <p class="compte" id="compteBornes" role="status" aria-live="polite"></p>
-          <p class="vide" id="bornesMsg" hidden></p>
+          <p class="vide" id="bornesMsg" role="status" aria-live="polite" hidden></p>
           <div class="tri" role="group" aria-label="Trier les bornes">
             <span>Trier :</span>
             <button type="button" data-kb="dist" id="thDistB" aria-pressed="true">Distance</button>
@@ -223,7 +223,7 @@ __APP_CSS__
     <div class="ligne">
       <label class="ctl">Véhicule <select id="veh" aria-label="Véhicule actif"></select></label>
       <button class="btn" id="vehPlus" type="button"><span data-ico="plus"></span> Ajouter</button>
-      <button class="btn" id="vehAssistant" type="button" title="Assistant en trois écrans : véhicule, position, c'est prêt"><span data-ico="estimer"></span> Assistant</button>
+      <button class="btn" id="vehAssistant" type="button" aria-haspopup="dialog" title="Assistant en trois écrans : véhicule, position, c'est prêt"><span data-ico="estimer"></span> Assistant</button>
     </div>
     <p id="garageMsg" class="msg" role="status" aria-live="polite"></p>
     <div id="fiche" class="fiche">
@@ -394,7 +394,7 @@ __APP_CSS__
         <label class="ctl" title="Comprise dans l'autonomie d'un plein : le plan ne l'entame jamais">dont réserve <input id="asReserve" type="number" step="5" min="0" max="200" value="30" inputmode="numeric"> km</label>
       </div>
       </div>
-      <p id="asErreur" class="erreur" role="alert"></p>
+      <p id="asErreur" class="erreur" role="status" aria-live="polite"></p>
       <div class="actions">
         <button class="btn primaire" id="asSuite1" type="button">Continuer <span data-ico="suivant"></span></button>
       </div>
@@ -481,12 +481,12 @@ __APP_CSS__
     <label class="inter grande" id="bornesVisiblesLbl"><input type="checkbox" id="bornesVisibles" role="switch"> Afficher les bornes électriques
       <small id="bornesVisiblesNote">en plus des stations, pour un véhicule thermique (toujours affichées pour un véhicule électrique)</small></label>
     <div class="choix">
-      <button type="button" class="choix-item" id="optPosition"><span data-ico="position"></span> Point de repère… <small>ma position, sur la carte, une adresse</small></button>
+      <button type="button" class="choix-item" id="optPosition" aria-haspopup="dialog"><span data-ico="position"></span> Point de repère… <small>ma position, sur la carte, une adresse</small></button>
     </div>
     <label class="ctl champ-large">Application pour « Y aller »
       <select id="navApp" aria-label="Application de navigation"></select></label>
     <div class="choix">
-      <button type="button" class="choix-item" id="optAide"><span data-ico="aide"></span> Comment ça marche</button>
+      <button type="button" class="choix-item" id="optAide" aria-haspopup="dialog"><span data-ico="aide"></span> Comment ça marche</button>
     </div>
   </section>
 

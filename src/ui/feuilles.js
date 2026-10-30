@@ -89,6 +89,13 @@ poserCran('apercu');
 // ---------- Feuilles modales ----------
 const voile = document.getElementById('voile');
 let modaleOuverte = null, modaleOrigine = null;
+// Feuille ouverte = le reste de la page est inerte (attribut inert : ni focus, ni clic, ni lecture
+// par les lecteurs d'ecran), en plus d'aria-modal. Les feuilles sont des enfants de #app, d'ou
+// une liste de ses autres enfants plutot qu'un aria-hidden sur #app. Le cycle Tab ci-dessous
+// reste en secours pour les navigateurs sans inert.
+const FOND = ['map', 'sansWebgl', 'haut', 'reticule', 'panneau'].map(id => document.getElementById(id))
+  .concat([...document.querySelectorAll('.boutons-carte')]).filter(Boolean);
+const fondInerte = on => FOND.forEach(el => { el.inert = on; });
 const FOCUSABLE = 'button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea,[tabindex]:not([tabindex="-1"])';
 function ouvrirFeuille(id, origine){
   const m = document.getElementById(id);
@@ -97,6 +104,7 @@ function ouvrirFeuille(id, origine){
   else if(!modaleOuverte) modaleOrigine = origine || document.activeElement;
   modaleOuverte = m;
   m.hidden = false; voile.hidden = false;
+  fondInerte(true);
   m.scrollTop = 0;
   // Le focus entre dans la feuille : premier champ ou bouton apres la croix, sinon le titre.
   const cibles = [...m.querySelectorAll(FOCUSABLE)].filter(el => !el.closest('.modale-tete'));
@@ -108,6 +116,7 @@ function fermerFeuille(){
   if(!modaleOuverte) return;
   const id = modaleOuverte.id;
   modaleOuverte.hidden = true; voile.hidden = true; modaleOuverte = null;
+  fondInerte(false);
   // Retour du focus a l'element d'origine ; s'il a ete redessine entre-temps (liste
   // des stations refaite apres un deplacement de la carte), a son homologue (meme data-id).
   let cible = modaleOrigine;
