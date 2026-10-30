@@ -1331,6 +1331,15 @@ let tronque = 0, seq = 0, minuteur = null, majCompte = () => {};
 // Etat (region aria-live) : fraicheur des prix + compteur ; un message ponctuel
 // (adresse copiee, position refusee) prend la place le temps de quelques secondes.
 let etatPrix = 'chargement…', etatTempo = null;
+// Hors ligne (30/10/2026) : le service worker (pwa/sw.js) sert la derniere reponse en cache quand
+// le reseau se tait et la date par l'en-tete x-viaminus-date ; la page la note pour l'etat et le
+// bandeau « Hors ligne — prix du … ». Vide a chaque chargement : une reponse en direct efface tout.
+let REPLI_DATES = [];
+const noterRepli = r => { const d = r && r.headers && r.headers.get('x-viaminus-date'); if(d) REPLI_DATES.push(d); return r; };
+const quandRepli = () => {
+  const t = REPLI_DATES.map(d => Date.parse(d)).filter(Number.isFinite);
+  return t.length ? new Date(Math.min(...t)).toLocaleString('fr-FR', {weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '';
+};
 function majEtat(ponctuel){
   const el = $('etat');
   if(ponctuel){
@@ -1372,6 +1381,7 @@ async function chargerProvinceES(id){
   if(c && Date.now() - c.t < ES_CACHE_MS) return c.stations;
   const r = await fetch(ES_URL + id, {signal: AbortSignal.timeout(20000)});
   if(!r.ok) throw new Error('HTTP ' + r.status);
+  noterRepli(r);
   const j = await r.json();
   if(!j || j.ResultadoConsulta !== 'OK' || !Array.isArray(j.ListaEESSPrecio)) throw new Error('réponse espagnole inattendue');
   // Stations ignorees et comptees : coordonnees manquantes (absentes, a 0, hors de l'Espagne —
@@ -1450,6 +1460,7 @@ async function chargerRuptures(zones, sel){
                                  `${z.n.toFixed(5)}, ${z.e.toFixed(5)})` + clause);
     const r = await fetch(`${URL_API}?where=${w}&select=${SEL_KO}&limit=100`, {signal: AbortSignal.timeout(20000)});
     if(!r.ok) throw new Error('HTTP '+r.status);
+    noterRepli(r);
     return (await r.json()).results;
   }));
   const vus = new Set();
@@ -1503,6 +1514,7 @@ async function charger(){
   // Accessoire et en parallele : une panne ici ne bloque jamais les prix.
   const ko = chargerRuptures(zones, choix()).catch(() => []);
   // Espagne, en parallele et a part : une panne la ne touche ni les prix francais ni le repli.
+  REPLI_DATES = [];
   const es = chargerES(zones).catch(() => { ES_KO = true; return []; });
   etatPrix = 'chargement…'; majEtat();
   try{
@@ -1515,6 +1527,7 @@ async function charger(){
       while(off < tot && off < PLAFOND){
         const r = await fetch(`${URL_API}?where=${bbox}&select=${SEL}&limit=100&offset=${off}`, {signal: AbortSignal.timeout(20000)});
         if(!r.ok) throw new Error('HTTP '+r.status);
+        noterRepli(r);
         const j = await r.json();
         if(mien !== seq) return;
         tot = j.total_count; rows = rows.concat(j.results); off += 100;
@@ -1531,8 +1544,15 @@ async function charger(){
     const kos = await ko;
     if(mien !== seq) return;
     RUPTURES = ROUTE ? kos.filter(situerSurTrace) : kos;
-    etatPrix = 'prix en direct · ' + new Date().toLocaleString('fr-FR',
-      {weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + etatES();
+    const repli = quandRepli();
+    if(repli){   // au moins une reponse vient du cache du service worker : prix d'une date passee
+      etatPrix = '<span class="ko">hors ligne</span> — prix du ' + esc(repli) + etatES();
+      montrerHorsLigne('Hors ligne — prix du ' + repli);
+    }else{
+      etatPrix = 'prix en direct · ' + new Date().toLocaleString('fr-FR',
+        {weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + etatES();
+      cacherHorsLigne();
+    }
   }catch(e){
     if(mien !== seq) return;
     const vis = emprise();
@@ -1543,6 +1563,7 @@ async function charger(){
     DATA = fusionnerES(normalise(SNAPSHOT).filter(s => dansEmprise(vis, s.la, s.lo)), esStations, zones.length);
     RUPTURES = [];
     etatPrix = '<span class="ko">hors ligne</span> — relevé du ' + SNAP_DATE + etatES();
+    if(navigator.onLine === false) montrerHorsLigne('Hors ligne — aucun prix récent en mémoire pour cette zone');
   }
   rendu();
   chargerBornes();   // vehicule thermique : seulement si l'option « Afficher les bornes » est cochee
@@ -2093,7 +2114,8 @@ async function calculerTrajet(ev){
     charger();
   }catch(e){
     if(mien !== CALCUL_N) return;
-    infoT.textContent = e.message;
+    // Hors ligne : adresses et trace demandent le reseau (jamais mis en cache) ; on le dit tel quel.
+    infoT.textContent = navigator.onLine === false ? 'Hors ligne : itinéraire indisponible (adresses et tracé demandent le réseau).' : e.message;
     if(sansGeste) charger();   // trajet importe injoignable : les prix autour de soi, au moins
   }
 }
@@ -2637,6 +2659,10 @@ if(PREMIER && !IMPORT_HASH && !REGL.assistantVu) setTimeout(() => ASSISTANT.ouvr
 // aussi a jour le cache, donc le rechargement recupere bien la nouvelle version.
 // Rien en file:// (fetch refuse) ; nouvelle verification au retour sur l'onglet,
 // au plus toutes les 10 minutes.
+// Avec le service worker (30/10/2026) : une nouvelle version detectee enregistre sw.js?v=<build>
+// (nouvelle URL = nouveau worker), qui met la nouvelle page en cache ; le bandeau n'apparait que
+// quand ce worker est pret (« installed »), et Recharger lui demande de prendre la main. Jamais
+// de rechargement automatique.
 const BUILD = document.querySelector('meta[name="fuelpilot-build"]')?.content || '';
 let derniereVerif = 0;
 async function verifierVersion(){
@@ -2648,7 +2674,10 @@ async function verifierVersion(){
     if(!r.ok) return;
     const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
     const enLigne = doc.querySelector('meta[name="fuelpilot-build"]')?.content;
-    if(enLigne && enLigne !== BUILD) montrerNouvelleVersion();
+    if(enLigne && enLigne !== BUILD){
+      if(SW_OK) enregistrerSW(enLigne).then(reg => { if(!reg) montrerNouvelleVersion(); });
+      else montrerNouvelleVersion();
+    }
   }catch(e){ /* hors ligne : on reessaiera au prochain retour sur l'onglet */ }
 }
 function montrerNouvelleVersion(){
@@ -2659,12 +2688,66 @@ function montrerNouvelleVersion(){
   t.textContent = 'Nouvelle version de ViaMinus disponible';
   const b = document.createElement('button');
   b.type = 'button'; b.className = 'btn primaire'; b.textContent = 'Recharger';
-  b.onclick = () => location.reload();
+  b.onclick = () => rechargerNouvelleVersion();
   const x = document.createElement('button');
   x.type = 'button'; x.className = 'btn'; x.textContent = 'Plus tard';
   x.onclick = () => d.remove();
   d.append(t, b, x);
-  document.body.appendChild(d);
+  ($('bandeaux') || document.body).appendChild(d);
 }
 verifierVersion();
 document.addEventListener('visibilitychange', () => { if(!document.hidden) verifierVersion(); });
+
+// ---------- Appli installable et hors-ligne (service worker, 30/10/2026) ----------
+// Uniquement en http(s) avec un navigateur qui sait faire : en file:// rien ne change (le
+// fuelpilot.html telecharge marche comme avant, sans installation ni hors-ligne). sw.js est
+// servi a cote de la page (pwa/) ; s'il manque ou echoue, la page fonctionne comme avant.
+const SW_OK = /^https?:$/.test(location.protocol) && 'serviceWorker' in navigator;
+let SW_ATTENTE = null;   // worker installe, en attente : la nouvelle version prete
+function surveillerSW(reg){
+  const suivre = w => {
+    if(!w) return;
+    w.addEventListener('statechange', () => {
+      if(w.state === 'installed' && navigator.serviceWorker.controller){ SW_ATTENTE = w; montrerNouvelleVersion(); }
+    });
+  };
+  if(reg.waiting && navigator.serviceWorker.controller){ SW_ATTENTE = reg.waiting; montrerNouvelleVersion(); }
+  suivre(reg.installing);
+  reg.addEventListener('updatefound', () => suivre(reg.installing));
+}
+async function enregistrerSW(build){
+  if(!SW_OK) return null;
+  const page = location.pathname.split('/').pop();   // '' | index.html | fuelpilot.html : la coquille a pre-cacher
+  const u = 'sw.js?v=' + encodeURIComponent(build || BUILD) + (page && page !== 'index.html' ? '&p=' + encodeURIComponent(page) : '');
+  try{
+    const reg = await navigator.serviceWorker.register(u);
+    surveillerSW(reg);
+    return reg;
+  }catch(e){ return null; }
+}
+function rechargerNouvelleVersion(){
+  if(!SW_ATTENTE){ location.reload(); return; }
+  let fait = false;
+  const recharger = () => { if(!fait){ fait = true; location.reload(); } };
+  navigator.serviceWorker.addEventListener('controllerchange', recharger);
+  SW_ATTENTE.postMessage({type: 'activer'});
+  setTimeout(recharger, 3000);   // le worker ne repond pas : on recharge quand meme (reseau d'abord)
+}
+if(SW_OK) window.addEventListener('load', () => { enregistrerSW(BUILD); });
+
+// Bandeau « Hors ligne — prix du … » (discret, empile avec « nouvelle version ») et mot sur la carte.
+function montrerHorsLigne(texte){
+  let d = $('horsLigne');
+  if(!d){
+    d = document.createElement('div');
+    d.id = 'horsLigne'; d.className = 'maj-dispo hors-ligne'; d.setAttribute('role', 'status');
+    ($('bandeaux') || document.body).appendChild(d);
+  }
+  const i = document.createElement('span'); i.innerHTML = ico('alerte');   // icone constante, texte en textContent
+  d.replaceChildren(i, document.createTextNode(' '), Object.assign(document.createElement('b'), {textContent: texte}));
+}
+function cacherHorsLigne(){ $('horsLigne')?.remove(); }
+function majCarteHorsLigne(){ const el = $('carteHorsLigne'); if(el) el.hidden = navigator.onLine !== false; }
+window.addEventListener('offline', majCarteHorsLigne);
+window.addEventListener('online', () => { majCarteHorsLigne(); charger(); });
+majCarteHorsLigne();
