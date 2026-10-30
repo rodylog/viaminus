@@ -1,0 +1,31 @@
+# Service de signalements partagés « pompe vide » de ViaMinus.
+# Déploiement : voir README.md (créer la D1, remplacer database_id, appliquer les
+# migrations, définir le secret SEL, puis `wrangler deploy`).
+name = "viaminus-signalements"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# Aucun journal applicatif : rien de ce qui transite (adresse IP, corps des
+# requêtes) n'est conservé par la plateforme au titre du Worker.
+[observability]
+enabled = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "viaminus-signalements"
+# Identifiant renvoyé par `wrangler d1 create viaminus-signalements` ; la valeur
+# ci-dessous ne sert qu'au développement local (`wrangler dev`, tests).
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# Purge horaire : signalements de plus de 48 h, empreintes de plus de 6 h dans
+# les signalements, quotas de plus de 24 h.
+[triggers]
+crons = ["0 * * * *"]
+
+[vars]
+# Origines autorisées (CORS), séparées par des virgules. `http://localhost`
+# autorise aussi n'importe quel port (développement).
+ORIGINES = "https://rodylog.github.io,http://localhost"
+# Le secret SEL (sel des empreintes) n'est PAS ici : `wrangler secret put SEL`
+# en production, fichier `.dev.vars` en local (voir .dev.vars.example).
