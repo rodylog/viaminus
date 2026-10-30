@@ -54,7 +54,7 @@ __APP_CSS__
           <label class="case"><input type="checkbox" id="sansPeage"> Sans péage</label>
           <!-- Autonomie restante au depart (Eric, 24/10/2026), en km ou en litres : vide = on part le plein
                fait ; sinon le plan peut faire le plein en route s'il y est moins cher qu'au depart. -->
-          <label class="ctl" title="Ce qu'il reste dans le réservoir au départ, en km ou en litres (vide : vous partez le plein fait)">Réservoir au départ
+          <label class="ctl" id="aBordLbl" title="Ce qu'il reste dans le réservoir au départ, en km ou en litres (vide : vous partez le plein fait)">Réservoir au départ
             <input id="aBord" type="number" min="0" step="1" inputmode="decimal" placeholder="plein" style="width:5.2em"
                    aria-label="Réservoir au départ, en km ou en litres ; vide : plein">
             <select id="aBordUnite" aria-label="Unité du réservoir au départ"><option value="km">km</option><option value="l">L</option></select></label>
@@ -105,7 +105,7 @@ __APP_CSS__
     <div class="panneau-corps" id="corps">
       <section id="blocPlan" class="bloc-plan" hidden aria-labelledby="titrePlan">
         <div class="bloc-plan-tete">
-          <h3 id="titrePlan"><span data-ico="pompe"></span> <span id="planTrajet">Plan de pleins</span></h3>
+          <h3 id="titrePlan"><span data-ico="pompe" id="planIco"></span> <span id="planTrajet">Plan de pleins</span></h3>
           <span id="planMeta" class="plan-meta"></span>
         </div>
         <p id="planEtat" class="visuellement-cache" role="status" aria-live="polite"></p>
@@ -139,6 +139,45 @@ __APP_CSS__
           <ol id="liste" class="stations" aria-label="Stations"></ol>
         </div>
       </section>
+      <!-- Bornes de recharge (phase 2, 30/10/2026) : seule liste pour un vehicule electrique ; pour un
+           thermique, affichee avec l'option « Afficher les bornes électriques ». Donnees : Base nationale
+           des IRVE, fichiers data/irve/<dep>.json a cote de la page, charges par departement. -->
+      <section id="secBornes" aria-labelledby="titreBornes" hidden>
+        <div class="stations-tete">
+          <h3 id="titreBornes"><span data-ico="eclair"></span> Bornes de recharge</h3>
+          <button class="replier" id="replierBornes" type="button" aria-expanded="true" aria-controls="bornesZone">
+            <span data-ico="bas"></span></button>
+        </div>
+        <div id="bornesZone">
+          <p class="legende">
+            <span><span class="sw sw-b rapide"></span> ≥ 150 kW</span>
+            <span><span class="sw sw-b moyen"></span> 50 à 149 kW</span>
+            <span><span class="sw sw-b lent"></span> moins de 50 kW</span>
+            <span><span class="sw sw-b inconnu"></span> puissance inconnue</span>
+          </p>
+          <div class="ligne filtres" role="group" aria-label="Filtrer les bornes">
+            <label class="ctl"><span data-ico="filtre"></span>
+              <select id="bKwMin" aria-label="Puissance minimale">
+                <option value="0">Toute puissance</option>
+                <option value="7">≥ 7 kW</option>
+                <option value="22">≥ 22 kW</option>
+                <option value="50">≥ 50 kW</option>
+                <option value="150">≥ 150 kW</option>
+              </select></label>
+            <label class="case"><input type="checkbox" id="bGratuit"> Gratuit</label>
+            <label class="case"><input type="checkbox" id="bCb"> Carte bancaire</label>
+            <label class="case"><input type="checkbox" id="bOuvert"> Ouvert maintenant</label>
+          </div>
+          <p class="compte" id="compteBornes" role="status" aria-live="polite"></p>
+          <p class="vide" id="bornesMsg" hidden></p>
+          <div class="tri" role="group" aria-label="Trier les bornes">
+            <span>Trier :</span>
+            <button type="button" data-kb="dist" id="thDistB" aria-pressed="true">Distance</button>
+            <button type="button" data-kb="kw" aria-pressed="false">Puissance</button>
+          </div>
+          <ol id="listeBornes" class="stations" aria-label="Bornes de recharge"></ol>
+        </div>
+      </section>
     </div>
   </aside>
 
@@ -154,6 +193,19 @@ __APP_CSS__
     <div class="actions">
       <button class="btn primaire" id="fsAller" type="button"><span data-ico="navigation"></span> Y aller</button>
       <button class="btn" id="fsCopier" type="button"><span data-ico="copier"></span> Copier l'adresse</button>
+    </div>
+  </section>
+
+  <section class="modale" id="ficheBorne" role="dialog" aria-modal="true" aria-labelledby="fbTitre" hidden>
+    <div class="modale-tete"><h2 id="fbTitre">Borne</h2>
+      <button class="rond petit fermer" type="button" aria-label="Fermer"><span data-ico="croix"></span></button></div>
+    <p id="fbOperateur" class="adresse"></p>
+    <p id="fbInfos" class="infos"></p>
+    <ul id="fbDetails" class="details"></ul>
+    <p id="fbMaj" class="note"></p>
+    <p class="note">Données statiques de la Base nationale des IRVE (data.gouv.fr) : ni disponibilité en temps réel, ni prix au kWh.</p>
+    <div class="actions">
+      <button class="btn primaire" id="fbAller" type="button"><span data-ico="navigation"></span> Y aller</button>
     </div>
   </section>
 
@@ -184,7 +236,54 @@ __APP_CSS__
             <option value="campingcar">Camping-car</option>
           </select></label>
         <label class="ctl" id="vcatLbl">Catégorie <select id="vcat" aria-label="Catégorie du véhicule"></select></label>
+        <label class="ctl">Énergie
+          <select id="venergie" aria-label="Énergie du véhicule">
+            <option value="thermique">Thermique</option>
+            <option value="elec">Électrique</option>
+          </select></label>
       </div>
+      <!-- Vehicule electrique (phase 2, 30/10/2026) : la batterie remplace le reservoir, les kWh les litres. -->
+      <div id="ficheElec" hidden>
+        <div class="ligne">
+          <label class="ctl" title="Capacité utilisable annoncée par le constructeur">Batterie utile
+            <input id="vbatt" type="number" step="1" min="5" max="300" placeholder="50" inputmode="decimal"> kWh</label>
+          <label class="ctl">Conso
+            <input id="vconsoKwh" type="number" step="0.5" min="5" max="60" placeholder="17" inputmode="decimal"> kWh/100</label>
+          <button class="btn" id="vehEstimerElec" type="button" title="Ordre de grandeur d'après le type et la catégorie"><span data-ico="estimer"></span> Estimer</button>
+        </div>
+        <p id="consoSourceElec" class="note" hidden></p>
+        <div class="ligne">
+          <label class="ctl" title="Puissance maximale acceptée sur une borne rapide (courant continu)">Charge rapide (DC)
+            <input id="vkwdc" type="number" step="1" min="0" max="500" placeholder="150" inputmode="decimal"> kW</label>
+          <div class="chips-kw" data-cible="vkwdc" role="group" aria-label="Puissances DC courantes">
+            <button type="button" data-kw="50">50</button><button type="button" data-kw="100">100</button>
+            <button type="button" data-kw="150">150</button><button type="button" data-kw="250">250</button>
+          </div>
+        </div>
+        <div class="ligne">
+          <label class="ctl" title="Puissance maximale du chargeur embarqué (prise Type 2, courant alternatif)">Charge lente (AC)
+            <input id="vkwac" type="number" step="0.1" min="0" max="50" placeholder="11" inputmode="decimal"> kW</label>
+          <div class="chips-kw" data-cible="vkwac" role="group" aria-label="Puissances AC courantes">
+            <button type="button" data-kw="7.4">7,4</button><button type="button" data-kw="11">11</button>
+            <button type="button" data-kw="22">22</button>
+          </div>
+        </div>
+        <div class="ligne">
+          <label class="ctl">Prise
+            <select id="vprise" aria-label="Prise de charge rapide">
+              <option value="ccs">CCS (Combo)</option>
+              <option value="chademo">CHAdeMO</option>
+              <option value="t2">Type 2 seule (pas de charge rapide)</option>
+            </select></label>
+          <label class="ctl" title="Part de la batterie que le plan n'entame jamais">Réserve
+            <input id="vreservePct" type="number" step="5" min="0" max="50" placeholder="15" inputmode="numeric"> %</label>
+          <label class="ctl" title="État de charge habituel au départ">Au départ
+            <input id="vdepartPct" type="number" step="5" min="10" max="100" placeholder="80" inputmode="numeric"> %</label>
+        </div>
+        <p class="note">Le plan de charge dit où s'arrêter et combien de temps ; il optimise le temps, pas le prix (aucune
+          donnée ouverte ne publie le prix au kWh). Partage : <code>#veh=Nom|||||<wbr>|E50,17,150,11,ccs,15,80</code>.</p>
+      </div>
+      <div id="ficheThermique">
       <p class="sous-titre">Carburants (cumulables : la station doit servir tous ceux cochés)</p>
       <div class="ligne" id="carbs"></div>
       <div class="ligne">
@@ -203,6 +302,7 @@ __APP_CSS__
       </div>
       <p class="note">Aucune source ouverte ne donne la capacité du réservoir : l'autonomie, que vous connaissez
         ou que la voiture affiche, prime. Partage de la fiche : <code>#veh=Nom|e85+e10|conso|réservoir|réserve|autonomie</code>.</p>
+      </div>
       <div class="actions">
         <button class="btn primaire" id="vehOk" type="button"><span data-ico="coche"></span> Enregistrer</button>
         <button class="btn" id="vehPartager" type="button" title="Lien d'import de cette fiche"><span data-ico="partager"></span> Partager</button>
@@ -222,6 +322,55 @@ __APP_CSS__
       <p class="sous-titre">Type</p>
       <div class="as-types" id="asTypes" role="group" aria-label="Type de véhicule"></div>
       <div class="as-cats" id="asCats" role="group" aria-label="Catégorie"></div>
+      <p class="sous-titre">Énergie</p>
+      <div class="as-types as-energies" id="asEnergies" role="group" aria-label="Énergie">
+        <button type="button" class="as-type" data-energie="thermique" aria-pressed="true"><span data-ico="pompe"></span><span>Thermique</span></button>
+        <button type="button" class="as-type" data-energie="elec" aria-pressed="false"><span data-ico="eclair"></span><span>Électrique</span></button>
+      </div>
+      <div id="asElec" hidden>
+        <label class="ctl as-principal" for="asBatt">Batterie utile, en kWh</label>
+        <div class="ligne as-principal-ligne">
+          <input id="asBatt" type="number" step="1" min="5" max="300" placeholder="50" inputmode="decimal">
+          <span>kWh</span>
+        </div>
+        <p class="note">La capacité utilisable annoncée par le constructeur (un peu sous la capacité brute). Elle fixe l'autonomie.</p>
+        <p class="sous-titre">Consommation, en kWh/100 km</p>
+        <div class="ligne">
+          <input id="asConsoKwh" type="number" step="0.5" min="5" max="60" placeholder="17" inputmode="decimal" aria-label="Consommation en kWh aux 100 km">
+          <span>kWh/100</span>
+        </div>
+        <p id="asConsoKwhSource" class="note" aria-live="polite"></p>
+        <p class="sous-titre">Puissance de charge maximale sur borne rapide (courant continu)</p>
+        <div class="ligne">
+          <div class="chips-kw" data-cible="asKwDc" role="group" aria-label="Puissance DC">
+            <button type="button" data-kw="50">50</button><button type="button" data-kw="100">100</button>
+            <button type="button" data-kw="150">150</button><button type="button" data-kw="250">250</button>
+            <button type="button" data-kw="autre">autre</button>
+          </div>
+          <input id="asKwDc" type="number" step="1" min="0" max="500" placeholder="150" inputmode="decimal" aria-label="Puissance maximale en courant continu, en kW">
+          <span>kW</span>
+        </div>
+        <p class="sous-titre">… et sur borne lente, prise Type 2 (courant alternatif)</p>
+        <div class="ligne">
+          <div class="chips-kw" data-cible="asKwAc" role="group" aria-label="Puissance AC">
+            <button type="button" data-kw="7.4">7,4</button><button type="button" data-kw="11">11</button>
+            <button type="button" data-kw="22">22</button>
+          </div>
+          <input id="asKwAc" type="number" step="0.1" min="0" max="50" placeholder="11" inputmode="decimal" aria-label="Puissance maximale en courant alternatif, en kW">
+          <span>kW</span>
+        </div>
+        <div class="ligne">
+          <label class="ctl">Prise
+            <select id="asPrise" aria-label="Prise de charge rapide">
+              <option value="ccs">CCS (Combo)</option>
+              <option value="chademo">CHAdeMO</option>
+              <option value="t2">Type 2 seule</option>
+            </select></label>
+          <label class="ctl" title="Part de la batterie que le plan n'entame jamais">Réserve <input id="asReservePct" type="number" step="5" min="0" max="50" value="15" inputmode="numeric"> %</label>
+          <label class="ctl" title="État de charge habituel au départ">Au départ <input id="asDepartPct" type="number" step="5" min="10" max="100" value="80" inputmode="numeric"> %</label>
+        </div>
+      </div>
+      <div id="asThermique">
       <p class="sous-titre">Carburant(s) — choisissez au moins un</p>
       <div class="ligne" id="asCarbs"></div>
       <label class="case" id="asHybrideLbl"><input type="checkbox" id="asHybride"> Hybride</label>
@@ -242,6 +391,7 @@ __APP_CSS__
       <div class="ligne">
         <label class="ctl">Réservoir (facultatif) <input id="asCuve" type="number" step="1" min="10" max="150" placeholder="50" inputmode="numeric"> L</label>
         <label class="ctl" title="Comprise dans l'autonomie d'un plein : le plan ne l'entame jamais">dont réserve <input id="asReserve" type="number" step="5" min="0" max="200" value="30" inputmode="numeric"> km</label>
+      </div>
       </div>
       <p id="asErreur" class="erreur" role="alert"></p>
       <div class="actions">
@@ -327,6 +477,8 @@ __APP_CSS__
       <button class="rond petit fermer" type="button" aria-label="Fermer"><span data-ico="croix"></span></button></div>
     <label class="inter grande"><input type="checkbox" id="sansCher" role="switch" checked> Masquer les trop chères
       <small>les 10 % les plus chères du secteur (60 km autour du repère) disparaissent de la carte et de la liste</small></label>
+    <label class="inter grande" id="bornesVisiblesLbl"><input type="checkbox" id="bornesVisibles" role="switch"> Afficher les bornes électriques
+      <small id="bornesVisiblesNote">en plus des stations, pour un véhicule thermique (toujours affichées pour un véhicule électrique)</small></label>
     <div class="choix">
       <button type="button" class="choix-item" id="optPosition"><span data-ico="position"></span> Point de repère… <small>ma position, sur la carte, une adresse</small></button>
     </div>
@@ -344,6 +496,13 @@ __APP_CSS__
       <li><b>Prix en direct</b> : flux instantané officiel du ministère de l'Économie (déclaration obligatoire des
         stations, mise à jour ~10 min), rechargé à chaque ouverture et à chaque déplacement de la carte — les
         stations suivent la zone affichée (400 au maximum ; au-delà, le compteur le signale).</li>
+      <li><b>Espagne</b> : dès que la carte ou le trajet touche l'Espagne, les stations espagnoles (badge
+        <span class="badge badge-pays">ES</span>, enseigne, horaires) s'ajoutent aux françaises — liste, carte, fiche et plan de
+        pleins : un Perpignan → Barcelone fait le plein du bon côté de la frontière. Prix du ministère espagnol,
+        chargés province par province (trois à la fois au plus : au-delà, zoomez), mis à jour toutes les 30 min ;
+        la date affichée est celle du fichier, commune à toutes les stations. Gazole = Gasóleo A, SP95 = Gasolina 95 E5,
+        SP98 = Gasolina 98 E5, E10 = Gasolina 95 E10, GPLc = GLP ; l'E85 n'existe presque pas en Espagne (2 stations
+        le 28/10/2026). Pas de notion de rupture dans le flux espagnol.</li>
       <li><b>Couleurs</b> : vert = la moins chère affichée (ex æquo compris), bleu = dans la norme, rouge = les 10 %
         les plus chères du secteur (60 km autour du repère), noir = repères du plan. Avec plusieurs carburants cochés,
         chaque carburant est coloré sur sa propre échelle et le classement se fait sur la somme ; « SP le moins cher »
@@ -380,15 +539,30 @@ __APP_CSS__
       <li><b>Assistant</b> : au premier lancement, trois écrans (véhicule, position, c'est prêt) ; la conso peut
         être estimée d'après le catalogue ADEME Car Labelling (médianes par catégorie, E85 = essence × 1,25).
         Accessible ensuite par le bouton « Assistant » du garage.</li>
+      <li><b>Véhicule électrique</b> : énergie « électrique » dans l'assistant ou le garage (batterie utile, kWh/100 km,
+        puissance de charge en continu et en alternatif, prise CCS / CHAdeMO / Type 2, réserve et état de charge au
+        départ). Les <b>bornes publiques</b> (Base nationale des IRVE, données statiques) remplacent alors les stations :
+        éclair coloré selon la puissance (≥ 150 kW, 50 à 149, moins de 50), filtres puissance / gratuit / carte
+        bancaire / ouvert maintenant, fiche avec prises, paiement, horaires, accès, date de mise à jour. Sur un trajet,
+        le <b>plan de charge</b> donne le temps de charge total, les arrêts numérotés (borne, km, kWh, puissance,
+        minutes, pourcentage avant et après) et le pourcentage à l'arrivée ; il optimise le temps, pas le prix (aucune
+        donnée ouverte ne publie le prix au kWh). Les bornes se chargent par département (quatre à la fois au plus :
+        « zoomez » au-delà) et ne sont pas disponibles hors ligne. Pour un véhicule thermique, l'option « Afficher
+        les bornes électriques » les ajoute à la carte ; le plafond de 400 éléments compte stations et bornes.</li>
     </ul>
     <h3>Sources et licences</h3>
     <ul class="puces">
       <li>Prix : <a href="https://data.economie.gouv.fr/explore/dataset/prix-des-carburants-en-france-flux-instantane-v2/" target="_blank" rel="noopener">data.economie.gouv.fr</a>
         (Licence Ouverte) — mêmes données que prix-carburants.gouv.fr.</li>
+      <li>Prix des carburants en Espagne : Ministerio para la Transición Ecológica y el Reto Demográfico,
+        <a href="https://geoportalgasolineras.es" target="_blank" rel="noopener">Geoportal Gasolineras</a>, données ouvertes
+        (API <code>sedeaplicaciones.minetur.gob.es</code>, par province).</li>
       <li>Fond de carte : Plan IGN et orthophotos © IGN — Géoplateforme ; OpenStreetMap (© les contributeurs)
         en secours seulement si l'IGN ne répond pas.</li>
       <li>Itinéraires : Géoplateforme IGN ; en secours, Valhalla public de FOSSGIS e.V. (données
         OpenStreetMap). Géocodage : Base Adresse Nationale ; en secours, géocodage Géoplateforme.</li>
+      <li>Bornes de recharge : <a href="https://www.data.gouv.fr/datasets/fichier-consolide-des-bornes-de-recharge-pour-vehicules-electriques/" target="_blank" rel="noopener">Base nationale des IRVE</a>
+        (Licence Ouverte Etalab 2.0), données statiques consolidées par data.gouv.fr.</li>
       <li>Bibliothèques : <a href="https://maplibre.org" target="_blank" rel="noopener">MapLibre GL JS</a> (BSD-3),
         icônes <a href="https://lucide.dev" target="_blank" rel="noopener">Lucide</a> (MIT). Code ViaMinus : MIT.
         Aucun serveur, aucun compte, aucun traqueur : la page ne parle qu'à ces services publics.</li>
