@@ -16,18 +16,19 @@ __APP_CSS__
 <body>
 <a class="evitement" href="#liste" id="evitement">Aller à la liste des stations</a>
 <div id="app">
-  <div id="map" aria-label="Carte des stations"></div>
-  <div id="sansWebgl" class="sans-webgl" hidden>
+  <h1 class="visuellement-cache">ViaMinus — prix des carburants, bornes de recharge et plan de pleins</h1>
+  <div id="map" role="region" aria-label="Carte interactive"></div>
+  <div id="sansWebgl" class="sans-webgl" role="region" aria-label="Carte indisponible" hidden>
     <p><span data-ico="alerte"></span> <b>Carte indisponible</b> : ce navigateur n'a pas WebGL (ou l'accélération
     graphique est désactivée). La liste des stations, le garage et le plan de pleins fonctionnent sans la carte.</p>
   </div>
 
-  <div id="haut" class="haut">
+  <header id="haut" class="haut">
     <div class="recherche" id="recherche">
       <button class="pilule" id="pilule" type="button" aria-expanded="false" aria-controls="trajet">
         <span data-ico="loupe"></span><span id="piluleTxt">Où allez-vous ?</span>
       </button>
-      <form id="trajet">
+      <form id="trajet" role="search" aria-label="Itinéraire">
         <div class="champs">
           <label class="champ"><span>Départ</span>
             <input id="depart" placeholder="Ma position" autocomplete="off"></label>
@@ -77,14 +78,14 @@ __APP_CSS__
       <span class="chip-txt"><span id="chipNom">Véhicule</span><span id="chipCarb" class="chip-carb"></span></span>
       <span data-ico="crayon" class="chip-crayon"></span>
     </button>
-  </div>
+  </header>
 
-  <div class="boutons-carte">
+  <div class="boutons-carte" role="toolbar" aria-label="Carte : position et fond">
     <button class="rond" id="maposition" type="button" title="Ma position" aria-label="Ma position"><span data-ico="viseur"></span></button>
     <button class="rond" id="fonds" type="button" title="Fond de carte et apparence" aria-label="Fond de carte et apparence" aria-haspopup="dialog"><span data-ico="couches"></span></button>
   </div>
 
-  <div id="reticule" class="reticule" hidden>
+  <div id="reticule" class="reticule" role="region" aria-label="Poser le repère" hidden>
     <div class="reticule-croix" aria-hidden="true"><span data-ico="reticule"></span></div>
     <div class="reticule-actions">
       <span>Déplacez la carte pour viser le point de repère</span>
@@ -93,7 +94,7 @@ __APP_CSS__
     </div>
   </div>
 
-  <aside id="panneau" class="panneau" data-cran="apercu" aria-label="Stations et plan de pleins">
+  <main id="panneau" class="panneau" data-cran="apercu" aria-label="Stations, bornes et plan">
     <button class="poignee" id="poignee" type="button" aria-label="Déplier le panneau" aria-expanded="false"></button>
     <div class="panneau-tete" id="panneauTete">
       <div class="panneau-titre">
@@ -124,9 +125,9 @@ __APP_CSS__
         </div>
         <div id="listeZone">
           <p class="legende">
-            <span><span class="sw" style="background:var(--vert)"></span> la moins chère</span>
+            <span><span class="sw" style="background:var(--vert)"></span><span data-ico="coche" class="marque-leg"></span> la moins chère</span>
             <span><span class="sw" style="background:var(--bleu)"></span> dans la norme</span>
-            <span><span class="sw" style="background:var(--rouge)"></span> chère</span>
+            <span><span class="sw" style="background:var(--rouge)"></span><span data-ico="haut" class="marque-leg"></span> chère</span>
             <span><span class="sw sw-plan"></span> plan</span>
           </p>
           <p class="compte"><span id="compte"></span> <span id="echelle"></span></p>
@@ -180,7 +181,7 @@ __APP_CSS__
         </div>
       </section>
     </div>
-  </aside>
+  </main>
 
   <div class="voile" id="voile" hidden></div>
 

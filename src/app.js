@@ -229,6 +229,23 @@ function couleur(p, b, mini){
   if(b && p > b.p90) return ROUGE;                     // 10 % les plus chers du secteur
   return BLEU;                                         // dans la norme
 }
+// La couleur ne porte jamais seule l'information (WCAG 1.4.1, audit du 30/10/2026) : la moins
+// chere porte une coche, la chere une fleche vers le haut, avec un texte pour les lecteurs
+// d'ecran ; la legende reprend les memes signes. marqueHtml() pour les gabarits innerHTML,
+// marquerPrix() pour les pastilles construites en DOM (recolorees apres le filtre du plan).
+function marqueHtml(c){
+  if(c === VERT) return ico('coche', 'marque') + '<span class="visuellement-cache marque-sr">la moins chère, </span>';
+  if(c === ROUGE) return ico('haut', 'marque') + '<span class="visuellement-cache marque-sr">chère, </span>';
+  return '';
+}
+function marquerPrix(sp, c){
+  sp.style.background = c;
+  sp.querySelectorAll('.marque, .marque-sr').forEach(x => x.remove());
+  const h = marqueHtml(c);
+  if(h){ const t = document.createElement('template'); t.innerHTML = h; sp.prepend(...t.content.childNodes); }
+}
+// Noms et adresses des stations espagnoles : lang="es" pour la synthese vocale (le reste de la page est en francais).
+const langES = (s, t) => s.pays ? `<span lang="es">${t}</span>` : t;
 
 // Referentiel de couleur : les bornes viennent du SECTEUR (60 km autour du
 // point de repere), pas de la zone affichee. Sans cela, la moins chere d'un ecran de
@@ -516,12 +533,13 @@ function renduCarburant(){
   const dessinerMarqueurs = (liste, mn) => { if(!CARTE) return;
     [...liste].sort((a,b) => b.v.p - a.v.p).forEach(o => {
       const {s,v} = o;
-      const chips = v.lignes.map((l,j) =>
-        `<span style="background:${couleur(l.prix, refs[j], mn[j])}">${l.tag} ${l.prix.toFixed(3)}</span>`).join('');
+      const chips = v.lignes.map((l,j) => { const c = couleur(l.prix, refs[j], mn[j]);
+        return `<span style="background:${c}">${marqueHtml(c)}${l.tag} ${l.prix.toFixed(3)}</span>`; }).join('');
+      const c0 = couleur(v.lignes[0].prix, refs[0], mn[0]);
       const html = multi
         ? `<div class="lbl lbl2">${chips}</div>`
-        : `<div class="lbl" style="background:${couleur(v.lignes[0].prix, refs[0], mn[0])};`+
-          `border-color:#555;color:#fff">${v.lignes[0].prix.toFixed(3)}`+
+        : `<div class="lbl" style="background:${c0};`+
+          `border-color:#555;color:#fff">${marqueHtml(c0)}${v.lignes[0].prix.toFixed(3)}`+
           (sel[0]==='spmin' ? ` <span style="font-size:10px;opacity:.85">${v.lignes[0].tag}</span>` : '')+
           `</div>`;
       const el = document.createElement('button');
@@ -722,7 +740,7 @@ function renduCarburant(){
       const mnCand = sel.map((k, j) => Math.min(...cand.map(c => c.v.lignes[j].prix)));
       const chipPrix = c => c.v.lignes.map((l, j) => {
         const sp = el('span', 'prix', `${l.tag} ${litre(l.prix)}`);
-        sp.style.background = couleur(l.prix, refs[j], mnCand[j]);
+        marquerPrix(sp, couleur(l.prix, refs[j], mnCand[j]));
         chipsPrix.push([sp, l.prix, j]);
         return sp;
       });
@@ -945,7 +963,7 @@ function renduCarburant(){
   // ex aequo compris, toutes les moins cheres affichees sont vertes (17/09/2026).
   const minisAff = sel.map((k,i) => Math.min(...tri.map(o => o.v.lignes[i].prix)));
   const miniTotAff = Math.min(...tri.map(o => o.v.p));
-  chipsPrix.forEach(([sp, prix, j]) => { sp.style.background = couleur(prix, refs[j], minisAff[j]); });
+  chipsPrix.forEach(([sp, prix, j]) => marquerPrix(sp, couleur(prix, refs[j], minisAff[j])));
   $('echelle').textContent =
     `— vert = la moins chère affichée, ex æquo compris ; ${sansCherLbl()} · ` +
     sel.map((k,i) => `${k==='spmin'?'SP':COURT[k]} ${minisAff[i].toFixed(3)}` +
@@ -953,18 +971,19 @@ function renduCarburant(){
   dessinerMarqueurs(tri, minisAff);
   tri.forEach((o, i) => {
     const {s, v} = o;
-    const chips = v.lignes.map((l,j) =>
-      `<span class="pill" style="background:${couleur(l.prix, refs[j], minisAff[j])}">${l.tag} ${l.prix.toFixed(3)}</span>`).join('');
+    const chips = v.lignes.map((l,j) => { const c = couleur(l.prix, refs[j], minisAff[j]);
+      return `<span class="pill" style="background:${c}">${marqueHtml(c)}${l.tag} ${l.prix.toFixed(3)}</span>`; }).join('');
+    const cTot = couleur(v.p, refTotal, miniTotAff);
     const prix = (multi
-      ? `<span class="pill" style="background:${couleur(v.p, refTotal, miniTotAff)}">${v.p.toFixed(3)} €</span>` : '') + chips;
+      ? `<span class="pill" style="background:${cTot}">${marqueHtml(cTot)}${v.p.toFixed(3)} €</span>` : '') + chips;
     const et = etapesStation.get(s), mc = moinsCheres.has(s), ex = extremites.get(s);
     const badges = (ex ? `<span class="badge">${ico('pompe')} ${ex}</span> ` : '') +
       (et ? `<span class="badge">${ico('pompe')} Étape${et.length > 1 ? 's' : ''} ${et.join(' · ')}</span> ` : mc ? `<span class="badge badge-min">Moins chère</span> ` : '');
     const li = document.createElement('li');
     li.innerHTML = `<button type="button" class="carte${et || mc || ex ? ' etape' : ''}" aria-haspopup="dialog">`+
-      `<span class="ville">${badges}${badgePays(s)}${s.ville} <span class="cp">${s.cp}</span></span>`+
+      `<span class="ville">${badges}${badgePays(s)}${langES(s, s.ville)} <span class="cp">${s.cp}</span></span>`+
       `<span class="prix">${prix}</span>`+
-      `<span class="adr">${s.enseigne ? `${s.enseigne} · ` : ''}${s.adresse}${s.auto ? ' · 24/24' : s.horario ? ` · ${resumerHorario(s.horario)}` : ''}</span>`+
+      `<span class="adr">${s.enseigne ? `${langES(s, s.enseigne)} · ` : ''}${langES(s, s.adresse)}${s.auto ? ' · 24/24' : s.horario ? ` · ${resumerHorario(s.horario)}` : ''}</span>`+
       `<span class="meta"><span>${(ROUTE ? s.ecart : s.d).toFixed(1)} km${ROUTE ? ' du trajet' : ''}</span>`+
       (ROUTE && s.kmr != null ? `<span>km ${Math.round(s.kmr)}</span>` : '')+
       `<span>relevé ${jour(v.maj)}</span></span></button>`;
@@ -1021,8 +1040,8 @@ function ouvrirStation(o, origine){
   const {s, v} = o;
   STATION = s;
   const utilises = v ? v.lignes.map(l => l.ref) : [];
-  $('fsTitre').innerHTML = `${badgePays(s)}${s.ville} <span class="cp" style="font-weight:400;color:var(--muted)">${s.cp}</span>`;
-  $('fsAdresse').innerHTML = (s.enseigne ? `<b>${s.enseigne}</b> · ` : '') + (s.adresse || '<i>adresse non renseignée</i>');
+  $('fsTitre').innerHTML = `${badgePays(s)}${langES(s, s.ville)} <span class="cp" style="font-weight:400;color:var(--muted)">${s.cp}</span>`;
+  $('fsAdresse').innerHTML = (s.enseigne ? `<b>${langES(s, s.enseigne)}</b> · ` : '') + (s.adresse ? langES(s, s.adresse) : '<i>adresse non renseignée</i>');
   // Station espagnole : horaires resumes et ouvert / ferme a l'heure qu'il est (src/es.js) ;
   // la date de ses prix est l'horodatage global du fichier du ministere, pas un releve par station.
   const ouvert = s.horario ? ouvertA(s.horario, new Date()) : null;

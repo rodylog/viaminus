@@ -72,7 +72,8 @@
           border:0;background:none;color:var(--ink);font:inherit;font-size:15px;text-align:left;
           border-radius:24px;cursor:pointer}
   .pilule .ico{color:var(--txt-bleu)}
-  #piluleTxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Deux lignes au plus (ecrans etroits, zoom texte) plutot qu'une troncature. */
+  #piluleTxt{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
   .pilule[aria-expanded="true"] #piluleTxt{color:var(--muted)}
   .recherche form{display:none;padding:0 12px 12px}
   .recherche.ouvert form{display:block}
@@ -161,6 +162,8 @@
   #lieu{font-weight:450;color:var(--muted)}
   .etat{margin:0;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .etat .ko{color:var(--txt-rouge)}
+  /* Panneau deplie : l'etat s'ecrit en entier (la troncature ne vaut que pour l'apercu de 96 px). */
+  .panneau:not([data-cran="apercu"]) .etat{white-space:normal}
   .panneau-corps{flex:1;min-height:0;overflow:auto;padding:0 16px calc(16px + var(--pad-bas));
                  overscroll-behavior:contain;scroll-padding-top:8px}
 
@@ -254,6 +257,11 @@
   .legende span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
   .sw{width:18px;height:10px;border-radius:3px;display:inline-block}
   .sw-plan{background:none;border:2px solid var(--repere);box-sizing:border-box}
+  /* Marque des prix (1.4.1 : la couleur ne porte jamais seule l'information) : coche = la moins
+     chere, fleche haute = chere ; meme signe dans la legende, texte cache pour les lecteurs d'ecran. */
+  svg.ico.marque{width:.9em;height:.9em;vertical-align:-.08em;margin-right:1px}
+  .marque-leg{color:var(--muted);margin-left:-4px}
+  .marque-leg .ico{width:.9em;height:.9em}
   .compte{font-size:12.5px;color:var(--muted);margin:0 0 6px}
   .tri{display:flex;gap:4px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin:0 0 8px}
   .tri button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:var(--r3);
