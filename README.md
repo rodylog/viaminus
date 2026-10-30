@@ -183,6 +183,14 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   (orthophoto en option), mode sombre automatique ou choisi, transformé côté
   client. « Y aller » ouvre l'application de navigation choisie au premier usage
   (lien `geo:`, Magic Earth, OsmAnd, Google Maps, Waze, OpenStreetMap).
+- **Accessibilité** (audit et corrections du 30/10/2026, cible WCAG 2.2 AA sur les parcours
+  principaux, déclaration dans `docs/accessibilite.md`) : parcours complet au clavier (Tab,
+  flèches dans les groupes de boutons, Échap, lien d'évitement vers la liste), feuilles modales
+  avec fond inerte et retour du focus, focus toujours visible (contour ≥ 3:1 dans les deux
+  thèmes), contrastes AA en clair comme en sombre par les jetons de `:root`, la couleur ne dit
+  jamais seule le prix (coche = la moins chère, flèche = chère), tailles de police en rem (zoom
+  texte 200 % sans perte), cibles tactiles ≥ 44 px, annonces polies (chargement, plan, erreurs),
+  `lang="es"` sur les noms et adresses des stations espagnoles, `prefers-reduced-motion` respecté.
 
 ## Mode d'emploi
 
@@ -229,6 +237,8 @@ Le gabarit vit dans `src/` et `generate.py` l'assemble en un seul fichier :
 | `src/app.js` | données, rendu (`rendu()` aiguille vers `renduCarburant()` — stations, plan de pleins, inchangé — ou `renduElec()` — bornes, plan de charge), garage, itinéraire (aller-retour), partage, import par l'URL, position, menus, bornes (`chargerBornes`, `renduBornes`, `ouvrirBorne`) |
 | `src/plan.test.js`, `src/conso.test.js`, `src/irve.test.js`, `src/plan-elec.test.js`, `src/bornes.test.js`, `src/partage.test.js`, `src/es.test.js` | tests des modules purs |
 | `irve_build.py`, `irve_build_test.py` | Base nationale des IRVE (CSV, 114 Mo) → `data/irve/<dep>.json` + `index.json`, bibliothèque standard seule ; tests `unittest` du département et de l'emprise |
+| `docs/accessibilite.md` | déclaration d'accessibilité : état, méthode, mesures avant / après (axe-core, clavier, performance), limites connues |
+| `outils/accessibilite/` | banc de mesure (hors build) : `axe.cjs`, `clavier.cjs`, `perf.cjs`, données factices `donnees.cjs`, page et états `banc.cjs` ; `npm install` puis `node axe.cjs <page.html> <dossier>` |
 
 Les scripts sont assemblés dans l'ordre de `SCRIPTS` (`generate.py`) en un seul
 `<script>` : `plan.js`, `conso.js`, `irve.js`, `bornes.js`, `partage.js`, `es.js`, `ui/*.js`, puis `app.js`.
@@ -286,6 +296,40 @@ inconnues, 49 662 stations, 13,8 Mo écrits (Hérault : 443 stations, 135 Ko).
 - Le script affiche un rapport : lignes lues, rejets, doublons, PDC, stations, département par
   voie, puissances inconnues, stations exclues des emprises, taille écrite.
 
+### Accessibilité (30/10/2026)
+
+Règles tenues dans le code, à garder lors des prochaines évolutions :
+
+- **Couleurs** : tout passe par les jetons de `:root` (`src/app.css`). Les fonds colorés à texte
+  blanc (`--bleu`, `--rouge`, `--vert`) sont les mêmes dans les deux thèmes ; un texte ou un
+  contour coloré utilise `--txt-bleu`, `--txt-rouge`, `--txt-vert`, `--focus`, éclaircis en mode
+  sombre (un bleu `#0b57d0` posé en texte sur une surface sombre tombe à 2,6:1). Gris des
+  sous-textes `--muted` ≥ 4,9:1 sur toutes ses surfaces ; bordure des champs `--bord-champ` et
+  piste d'interrupteur `--interrupteur` ≥ 3:1.
+- **La couleur ne dit jamais seule le prix** : `marqueHtml()` / `marquerPrix()` (`src/app.js`)
+  posent la coche (la moins chère) ou la flèche (chère) et un texte caché ; toute nouvelle
+  pastille de prix passe par là.
+- **Feuilles** : `ouvrirFeuille()` rend le reste de la page `inert` et `fermerFeuille()` rend le
+  focus à l'ouvreur ; un nouvel élément de premier niveau dans `#app` doit être ajouté à `FOND`
+  (`src/ui/feuilles.js`). Un bouton qui ouvre une feuille porte `aria-haspopup="dialog"`.
+- **Re-rendu** : `rendu()` garde le focus (par `data-id`, sinon classe et rang) ; les cartes de
+  la liste portent `data-id`.
+- **Clavier** : les boutons d'un `role="group"` ou `role="toolbar"` se parcourent aux flèches ;
+  un bouton-icône porte un `aria-label` ; régions live en `polite` seulement (jamais `assertive`,
+  sauf perte de données).
+- **Tailles de police en rem** (16 px = 1 rem) : ne pas réintroduire de `font-size` en px ;
+  hauteurs en `min-height` plutôt qu'en `height` pour que le zoom texte étire sans couper.
+- **Cibles tactiles ≥ 44 px** (règle `@media (pointer:coarse)`), y compris les marqueurs de la carte.
+
+Mesure (hors build, npm seulement ici) : `cd outils/accessibilite && npm install`, puis
+`./generate.py --sans-snapshot --out /tmp/page.html` et `node axe.cjs /tmp/page.html sortie`
+(axe-core 4.10 sur 12 états × 375 / 1280 px × clair / sombre), `node clavier.cjs …` (parcours Tab,
+pièges, retour du focus, contraste du contour, cibles < 44 px, reflow 320 px, zoom texte 200 %,
+captures), `node perf.cjs …` (temps jusqu'au premier rendu de la liste, moyenne de 5 chargements,
+latence réseau 0 et 150 ms). Les données sont factices (dix stations Paris → Lyon, trois bornes,
+un véhicule thermique et un électrique), servies par interception réseau : rien ne sort de la machine.
+Playwright est celui du poste (`npx playwright install chromium` au premier usage).
+
 La CSP est recalculée à chaque génération à partir des scripts réellement inline
 (bibliothèque + application) ; un nouvel hôte réseau doit être ajouté à
 `connect-src` / `img-src` dans `csp_meta()`. MapLibre charge tuiles, glyphes et
@@ -328,6 +372,10 @@ sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
 - Bornes de recharge : données **statiques** (pas de disponibilité en temps réel, pas de prix
   au kWh), indisponibles en `file://` et hors ligne (fichiers servis à côté de la page) ; les
   consommations électriques pré-remplies sont des ordres de grandeur, pas des médianes mesurées.
+- Accessibilité : la carte (canvas WebGL) n'est pas lisible au lecteur d'écran et ses marqueurs
+  ne sont pas dans l'ordre de tabulation — la liste porte toute l'information ; vérifié avec
+  axe-core et un parcours clavier automatisé dans Chromium, **pas encore avec de vrais lecteurs
+  d'écran** (TalkBack, NVDA, VoiceOver) ni sur une vraie carte IGN (voir `docs/accessibilite.md`).
 - Plan de charge électrique : il optimise le **temps de charge**, pas l'euro (pas de prix au
   kWh dans les données ouvertes) — pas de « Faire un détour pour payer moins ? » pour
   l'électrique, le couloir se règle à la main ; courbe de charge simplifiée en deux paliers (puissance

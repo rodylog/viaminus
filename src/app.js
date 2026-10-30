@@ -184,24 +184,38 @@ if(!CENTRE) CENTRE = [46.603, 2.334];
 
 // ---------- Carte (MapLibre GL, fond IGN) ----------
 // Sans WebGL : message sur fond neutre, le reste (liste, garage, plan) fonctionne.
-const CARTE = creerCarte({centre: CENTRE, zoom: ZOOM0, sombre: sombreEffectif(), fond: REGL.fond});
-const map = CARTE ? CARTE.map : null;
-if(!CARTE){
-  $('map').hidden = true;
-  $('sansWebgl').hidden = false;
-}
+// Creation DIFFEREE (audit du 30/10/2026) : le constructeur MapLibre (~30 ms) s'executait avant
+// le premier appel au flux des prix, qu'il retardait d'autant ; initialiserCarte() est appelee a
+// la frame suivant le lancement du premier chargement (voir en bas), pendant que la requete est
+// en vol. L'emprise de ce premier appel est calculee sans la carte (emprise(), Mercator) : memes
+// bornes que celles que MapLibre donnera, donc pas de second appel. Tout ce qui touche la carte
+// est garde par `if(CARTE)` / `if(map)` : c'est deja le cas pour le chemin sans WebGL.
+let CARTE = null, map = null, repere = null;
 // Repere (pastille bleue) : les distances partent d'ici.
 const elRepere = document.createElement('div');
 elRepere.className = 'repere';
 elRepere.title = 'Point de repère — les distances partent d\'ici';
-const repere = CARTE ? CARTE.marqueur(CENTRE[0], CENTRE[1], elRepere) : null;
 // Trace du trajet (couche GeoJSON, remise apres chaque changement de style).
 const TRACE_VIDE = {type: 'FeatureCollection', features: []};
-// Aller-retour : le retour est un second trait, decale de quelques pixels pour se lire.
-if(CARTE) CARTE.couche('fh-trace', {type: 'geojson', data: TRACE_VIDE},
-  {type: 'line', layout: {'line-cap': 'round', 'line-join': 'round'},
-   paint: {'line-color': '#1d4ed8', 'line-width': 5, 'line-opacity': 0.45,
-           'line-offset': ['case', ['==', ['get', 'sens'], 'retour'], 6, 0]}});
+let TRACE = TRACE_VIDE;   // dernier trace pose (repris si la carte nait apres le calcul du trajet)
+function initialiserCarte(){
+  if(CARTE || $('sansWebgl').hidden === false) return;
+  CARTE = creerCarte({centre: CENTRE, zoom: ZOOM0, sombre: sombreEffectif(), fond: REGL.fond});
+  map = CARTE ? CARTE.map : null;
+  if(!CARTE){
+    $('map').hidden = true;
+    $('sansWebgl').hidden = false;
+    return;
+  }
+  repere = CARTE.marqueur(CENTRE[0], CENTRE[1], elRepere);
+  // Aller-retour : le retour est un second trait, decale de quelques pixels pour se lire.
+  CARTE.couche('fh-trace', {type: 'geojson', data: TRACE},
+    {type: 'line', layout: {'line-cap': 'round', 'line-join': 'round'},
+     paint: {'line-color': '#1d4ed8', 'line-width': 5, 'line-opacity': 0.45,
+             'line-offset': ['case', ['==', ['get', 'sens'], 'retour'], 6, 0]}});
+  brancherCarte();          // evenements (deplacement, appui long, clic droit), definis plus bas
+  if(DATA.length || BORNES.length) rendu();   // un rendu a deja eu lieu sans carte : poser ses marqueurs
+}
 
 let MARQUEURS = [];   // marqueurs HTML des stations et reperes du plan, refaits a chaque rendu
 let DATA = [], sortKey = 'prix', sortAsc = true;
@@ -222,13 +236,30 @@ const dist = (la,lo) => {
 // (feuille non chargee, style calcule vide).
 const jeton = (nom, repli) =>
   getComputedStyle(document.documentElement).getPropertyValue(nom).trim() || repli;
-const VERT = jeton('--vert', '#158a3f'), BLEU = jeton('--bleu', '#0b57d0'),
+const VERT = jeton('--vert', '#137a37'), BLEU = jeton('--bleu', '#0b57d0'),
       ROUGE = jeton('--rouge', '#c02626');
 function couleur(p, b, mini){
   if(mini != null && p <= mini + 1e-9) return VERT;    // le moins cher, ex aequo compris
   if(b && p > b.p90) return ROUGE;                     // 10 % les plus chers du secteur
   return BLEU;                                         // dans la norme
 }
+// La couleur ne porte jamais seule l'information (WCAG 1.4.1, audit du 30/10/2026) : la moins
+// chere porte une coche, la chere une fleche vers le haut, avec un texte pour les lecteurs
+// d'ecran ; la legende reprend les memes signes. marqueHtml() pour les gabarits innerHTML,
+// marquerPrix() pour les pastilles construites en DOM (recolorees apres le filtre du plan).
+function marqueHtml(c){
+  if(c === VERT) return ico('coche', 'marque') + '<span class="visuellement-cache marque-sr">la moins chère, </span>';
+  if(c === ROUGE) return ico('haut', 'marque') + '<span class="visuellement-cache marque-sr">chère, </span>';
+  return '';
+}
+function marquerPrix(sp, c){
+  sp.style.background = c;
+  sp.querySelectorAll('.marque, .marque-sr').forEach(x => x.remove());
+  const h = marqueHtml(c);
+  if(h){ const t = document.createElement('template'); t.innerHTML = h; sp.prepend(...t.content.childNodes); }
+}
+// Noms et adresses des stations espagnoles : lang="es" pour la synthese vocale (le reste de la page est en francais).
+const langES = (s, t) => s.pays ? `<span lang="es">${t}</span>` : t;
 
 // Referentiel de couleur : les bornes viennent du SECTEUR (60 km autour du
 // point de repere), pas de la zone affichee. Sans cela, la moins chere d'un ecran de
@@ -404,7 +435,16 @@ const sansCherLbl = () => $('sansCher').checked
 // que si elle est finie et non degeneree ; sinon on interroge autour du repere, et la
 // carte relance un chargement des qu'elle recoit sa taille (evenement resize).
 let empriseProvisoire = false;
+// Memo le temps d'une passe synchrone (un rendu appelle emprise() trois ou quatre fois ; chaque
+// appel force une mise en page) ; vide a la microtache suivante, donc jamais perime apres un await.
+let EMPRISE_MEMO = null;
 function emprise(){
+  if(EMPRISE_MEMO) return EMPRISE_MEMO;
+  const e = empriseCalculee();
+  EMPRISE_MEMO = e; queueMicrotask(() => { EMPRISE_MEMO = null; });
+  return e;
+}
+function empriseCalculee(){
   if(map){
     const c = map.getContainer();
     if(c.clientWidth > 0 && c.clientHeight > 0){
@@ -415,6 +455,15 @@ function emprise(){
         return {s: Math.max(-85, s), n: Math.min(85, n), w: Math.max(-180, w), e: Math.min(180, e)};
       }
     }
+  }else if($('map').clientWidth > 0 && $('map').clientHeight > 0 && $('sansWebgl').hidden){
+    // Carte pas encore creee (premier chargement) : bornes Mercator du conteneur deja mis en page,
+    // au centre et au zoom initiaux — ce que MapLibre affichera a la frame suivante.
+    const w = $('map').clientWidth, h = $('map').clientHeight, monde = 512 * 2 ** ZOOM0, r = Math.PI / 180;
+    const x = (CENTRE[1] + 180) / 360 * monde;
+    const y = (1 - Math.log(Math.tan(CENTRE[0] * r) + 1 / Math.cos(CENTRE[0] * r)) / Math.PI) / 2 * monde;
+    const lon = px => px / monde * 360 - 180, lat = py => Math.atan(Math.sinh(Math.PI * (1 - 2 * py / monde))) / r;
+    empriseProvisoire = false;
+    return {s: Math.max(-85, lat(y + h / 2)), n: Math.min(85, lat(y - h / 2)), w: Math.max(-180, lon(x - w / 2)), e: Math.min(180, lon(x + w / 2))};
   }
   empriseProvisoire = true;
   if(ZOOM0 < 10) return {s: 41.2, n: 51.3, w: -5.5, e: 9.8};     // France entiere
@@ -516,13 +565,14 @@ function renduCarburant(){
   const dessinerMarqueurs = (liste, mn) => { if(!CARTE) return;
     [...liste].sort((a,b) => b.v.p - a.v.p).forEach(o => {
       const {s,v} = o;
-      const chips = v.lignes.map((l,j) =>
-        `<span style="background:${couleur(l.prix, refs[j], mn[j])}">${l.tag} ${l.prix.toFixed(3)}</span>`).join('');
+      const chips = v.lignes.map((l,j) => { const c = couleur(l.prix, refs[j], mn[j]);
+        return `<span style="background:${c}">${marqueHtml(c)}${l.tag} ${l.prix.toFixed(3)}</span>`; }).join('');
+      const c0 = couleur(v.lignes[0].prix, refs[0], mn[0]);
       const html = multi
         ? `<div class="lbl lbl2">${chips}</div>`
-        : `<div class="lbl" style="background:${couleur(v.lignes[0].prix, refs[0], mn[0])};`+
-          `border-color:#555;color:#fff">${v.lignes[0].prix.toFixed(3)}`+
-          (sel[0]==='spmin' ? ` <span style="font-size:10px;opacity:.85">${v.lignes[0].tag}</span>` : '')+
+        : `<div class="lbl" style="background:${c0};`+
+          `border-color:#555;color:#fff">${marqueHtml(c0)}${v.lignes[0].prix.toFixed(3)}`+
+          (sel[0]==='spmin' ? ` <span style="font-size:.625rem;opacity:.85">${v.lignes[0].tag}</span>` : '')+
           `</div>`;
       const el = document.createElement('button');
       el.type = 'button'; el.className = 'marqueur'; el.tabIndex = -1;
@@ -722,7 +772,7 @@ function renduCarburant(){
       const mnCand = sel.map((k, j) => Math.min(...cand.map(c => c.v.lignes[j].prix)));
       const chipPrix = c => c.v.lignes.map((l, j) => {
         const sp = el('span', 'prix', `${l.tag} ${litre(l.prix)}`);
-        sp.style.background = couleur(l.prix, refs[j], mnCand[j]);
+        marquerPrix(sp, couleur(l.prix, refs[j], mnCand[j]));
         chipsPrix.push([sp, l.prix, j]);
         return sp;
       });
@@ -945,7 +995,7 @@ function renduCarburant(){
   // ex aequo compris, toutes les moins cheres affichees sont vertes (17/09/2026).
   const minisAff = sel.map((k,i) => Math.min(...tri.map(o => o.v.lignes[i].prix)));
   const miniTotAff = Math.min(...tri.map(o => o.v.p));
-  chipsPrix.forEach(([sp, prix, j]) => { sp.style.background = couleur(prix, refs[j], minisAff[j]); });
+  chipsPrix.forEach(([sp, prix, j]) => marquerPrix(sp, couleur(prix, refs[j], minisAff[j])));
   $('echelle').textContent =
     `— vert = la moins chère affichée, ex æquo compris ; ${sansCherLbl()} · ` +
     sel.map((k,i) => `${k==='spmin'?'SP':COURT[k]} ${minisAff[i].toFixed(3)}` +
@@ -953,18 +1003,19 @@ function renduCarburant(){
   dessinerMarqueurs(tri, minisAff);
   tri.forEach((o, i) => {
     const {s, v} = o;
-    const chips = v.lignes.map((l,j) =>
-      `<span class="pill" style="background:${couleur(l.prix, refs[j], minisAff[j])}">${l.tag} ${l.prix.toFixed(3)}</span>`).join('');
+    const chips = v.lignes.map((l,j) => { const c = couleur(l.prix, refs[j], minisAff[j]);
+      return `<span class="pill" style="background:${c}">${marqueHtml(c)}${l.tag} ${l.prix.toFixed(3)}</span>`; }).join('');
+    const cTot = couleur(v.p, refTotal, miniTotAff);
     const prix = (multi
-      ? `<span class="pill" style="background:${couleur(v.p, refTotal, miniTotAff)}">${v.p.toFixed(3)} €</span>` : '') + chips;
+      ? `<span class="pill" style="background:${cTot}">${marqueHtml(cTot)}${v.p.toFixed(3)} €</span>` : '') + chips;
     const et = etapesStation.get(s), mc = moinsCheres.has(s), ex = extremites.get(s);
     const badges = (ex ? `<span class="badge">${ico('pompe')} ${ex}</span> ` : '') +
       (et ? `<span class="badge">${ico('pompe')} Étape${et.length > 1 ? 's' : ''} ${et.join(' · ')}</span> ` : mc ? `<span class="badge badge-min">Moins chère</span> ` : '');
     const li = document.createElement('li');
     li.innerHTML = `<button type="button" class="carte${et || mc || ex ? ' etape' : ''}" aria-haspopup="dialog">`+
-      `<span class="ville">${badges}${badgePays(s)}${s.ville} <span class="cp">${s.cp}</span></span>`+
+      `<span class="ville">${badges}${badgePays(s)}${langES(s, s.ville)} <span class="cp">${s.cp}</span></span>`+
       `<span class="prix">${prix}</span>`+
-      `<span class="adr">${s.enseigne ? `${s.enseigne} · ` : ''}${s.adresse}${s.auto ? ' · 24/24' : s.horario ? ` · ${resumerHorario(s.horario)}` : ''}</span>`+
+      `<span class="adr">${s.enseigne ? `${langES(s, s.enseigne)} · ` : ''}${langES(s, s.adresse)}${s.auto ? ' · 24/24' : s.horario ? ` · ${resumerHorario(s.horario)}` : ''}</span>`+
       `<span class="meta"><span>${(ROUTE ? s.ecart : s.d).toFixed(1)} km${ROUTE ? ' du trajet' : ''}</span>`+
       (ROUTE && s.kmr != null ? `<span>km ${Math.round(s.kmr)}</span>` : '')+
       `<span>relevé ${jour(v.maj)}</span></span></button>`;
@@ -1021,8 +1072,8 @@ function ouvrirStation(o, origine){
   const {s, v} = o;
   STATION = s;
   const utilises = v ? v.lignes.map(l => l.ref) : [];
-  $('fsTitre').innerHTML = `${badgePays(s)}${s.ville} <span class="cp" style="font-weight:400;color:var(--muted)">${s.cp}</span>`;
-  $('fsAdresse').innerHTML = (s.enseigne ? `<b>${s.enseigne}</b> · ` : '') + (s.adresse || '<i>adresse non renseignée</i>');
+  $('fsTitre').innerHTML = `${badgePays(s)}${langES(s, s.ville)} <span class="cp" style="font-weight:400;color:var(--muted)">${s.cp}</span>`;
+  $('fsAdresse').innerHTML = (s.enseigne ? `<b>${langES(s, s.enseigne)}</b> · ` : '') + (s.adresse ? langES(s, s.adresse) : '<i>adresse non renseignée</i>');
   // Station espagnole : horaires resumes et ouvert / ferme a l'heure qu'il est (src/es.js) ;
   // la date de ses prix est l'horodatage global du fichier du ministere, pas un releve par station.
   const ouvert = s.horario ? ouvertA(s.horario, new Date()) : null;
@@ -1548,7 +1599,8 @@ async function charger(){
   chargerBornes();   // vehicule thermique : seulement si l'option « Afficher les bornes » est cochee
 }
 
-if(map){
+// Evenements de la carte : branches par initialiserCarte() (voir brancherCarte, plus bas).
+function brancherDeplacements(){
   map.on('moveend', () => {
     if(ROUTE){ rendu(); return; }      // couloir deja charge : simple refiltrage
     clearTimeout(minuteur);
@@ -1668,7 +1720,8 @@ function poserRepere(ll){
   if(navigator.vibrate) navigator.vibrate(15);
   situer(ll.lat, ll.lng, 'Point de repère', true);
 }
-if(map){
+function brancherCarte(){
+  brancherDeplacements();
   map.on('contextmenu', e => { e.preventDefault(); poserRepere(e.lngLat); });
   const cc = map.getCanvasContainer();
   let minuteurAppui = null, p0 = null;
@@ -2070,7 +2123,8 @@ async function calculerTrajet(ev){
     if(CARTE){
       const features = [{type: 'Feature', properties: {sens: 'aller'}, geometry: {type: 'LineString', coordinates: aller.pts}}];
       if(retour) features.push({type: 'Feature', properties: {sens: 'retour'}, geometry: {type: 'LineString', coordinates: retour.pts}});
-      CARTE.donnees('fh-trace', {type: 'FeatureCollection', features});
+      TRACE = {type: 'FeatureCollection', features};
+      CARTE.donnees('fh-trace', TRACE);
       // Cadrage sur le trace : geste explicite (le bouton), donc autorise — sauf trajet
       // importe par l'URL, pose sans animation ; la feuille s'ouvre a moitie sur mobile,
       // le cadrage laisse la place en bas.
@@ -2112,6 +2166,7 @@ $('inverser').onclick = () => {
 $('effacer').onclick = () => {
   CALCUL_N++;   // un calcul en vol ne doit plus reposer un trace
   ROUTE = null; KMS = null; I_RETOUR = null; ALLER_KM = null; ROUTE_AR = false; TRAJET = null;
+  TRACE = TRACE_VIDE;
   if(CARTE) CARTE.donnees('fh-trace', TRACE_VIDE);
   $('effacer').hidden = true;
   majTrajets(); majPilule(); replierStations(false); rendu();
@@ -2265,14 +2320,43 @@ function situerBorne(b){
 // rendu() est appele partout ou l'etait l'ancien rendu : vehicule electrique -> renduElec()
 // (bornes + plan de charge) ; thermique -> renduCarburant() tel quel, puis les bornes si demandees.
 let PLAN_ICO = 'pompe';
+// Le focus survit au re-rendu du panneau (liste refaite a chaque deplacement de la carte, plan
+// refait a chaque choix de detour) : l'element actif est retrouve par son data-id (carte de
+// station ou de borne), sinon par sa classe et son rang dans le panneau. Sans cela, un
+// utilisateur au clavier retombait sur le corps de la page apres chaque redessin (audit du 30/10/2026).
+function focusPanneau(){
+  const a = document.activeElement;
+  if(!a || !$('corps').contains(a) || !a.classList.length) return null;
+  const cls = a.classList[0];
+  return {cls, id: a.dataset.id || null, i: [...$('corps').querySelectorAll('.' + CSS.escape(cls))].indexOf(a)};
+}
+function restaurerFocus(f){
+  if(!f || $('corps').contains(document.activeElement) && document.activeElement !== document.body) return;
+  let el = f.id ? $('corps').querySelector(`.${CSS.escape(f.cls)}[data-id="${CSS.escape(f.id)}"]`) : null;
+  if(!el && f.i >= 0) el = $('corps').querySelectorAll('.' + CSS.escape(f.cls))[f.i] || null;
+  if(el && el.offsetParent !== null) el.focus({preventScroll: true});
+}
 function rendu(){
+  const f = focusPanneau();
   const elec = estElec();
   if(PLAN_ICO !== (elec ? 'eclair' : 'pompe')){ PLAN_ICO = elec ? 'eclair' : 'pompe'; $('planIco').innerHTML = ico(PLAN_ICO); }
-  if(elec){ renduElec(); return; }
-  $('secStations').hidden = false;
-  renduCarburant();
-  renduBornes(false, null);
+  if(elec) renduElec();
+  else{
+    $('secStations').hidden = false;
+    renduCarburant();
+    renduBornes(false, null);
+  }
+  restaurerFocus(f);
 }
+// Lien d'evitement : la liste visible (stations, ou bornes pour un vehicule electrique), panneau
+// deplie sur mobile, focus sur la premiere carte (sinon sur la liste elle-meme).
+$('evitement').addEventListener('click', e => {
+  e.preventDefault();
+  deplier('plein');
+  const l = estElec() ? $('listeBornes') : $('liste');
+  (l.querySelector('.carte') || l).focus();
+  l.scrollIntoView({block: 'start'});
+});
 // Construction DOM (textContent, jamais innerHTML sur une chaine externe).
 const mk = (tag, cls, ...enfants) => {
   const e = document.createElement(tag);
@@ -2618,6 +2702,8 @@ function lancerTrajetImporte(){
 }
 if(TRAJET_IMPORT && !TRAJET_IMPORT.attendPosition) lancerTrajetImporte();
 else charger();     // on affiche tout de suite, sans attendre l'autorisation
+// La carte nait a la frame suivante, la premiere requete deja partie (voir initialiserCarte).
+requestAnimationFrame(initialiserCarte);
 localiser(true, () => lancerTrajetImporte());   // puis on recentre sur l'appareil si l'utilisateur accepte
 
 // ---------- Assistant vehicule (premier lancement, ou bouton du garage) ----------
@@ -2639,16 +2725,27 @@ if(PREMIER && !IMPORT_HASH && !REGL.assistantVu) setTimeout(() => ASSISTANT.ouvr
 // au plus toutes les 10 minutes.
 const BUILD = document.querySelector('meta[name="fuelpilot-build"]')?.content || '';
 let derniereVerif = 0;
+// Le marqueur est dans les premiers 2 Ko de la page : on lit le flux jusqu'a lui et on
+// l'interrompt, au lieu de telecharger 1,4 Mo et de les analyser au DOMParser (mesure du
+// 30/10/2026 : 23 ms de calcul au demarrage, et toute la page re-telechargee a chaque ouverture).
+// Premiere verification 3 s apres le demarrage : elle ne concurrence plus le premier rendu.
 async function verifierVersion(){
   if(!/^https?:$/.test(location.protocol) || !BUILD) return;
   if(Date.now() - derniereVerif < 600000) return;
   derniereVerif = Date.now();
   try{
     const r = await fetch(location.pathname, {cache: 'no-cache'});
-    if(!r.ok) return;
-    const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
-    const enLigne = doc.querySelector('meta[name="fuelpilot-build"]')?.content;
-    if(enLigne && enLigne !== BUILD) montrerNouvelleVersion();
+    if(!r.ok || !r.body) return;
+    const lecteur = r.body.getReader(), dec = new TextDecoder();
+    let txt = '', m = null;
+    while(!m && txt.length < 65536){
+      const {value, done} = await lecteur.read();
+      if(value) txt += dec.decode(value, {stream: true});
+      m = txt.match(/<meta name="fuelpilot-build" content="([^"]*)"/);
+      if(done) break;
+    }
+    lecteur.cancel().catch(() => {});
+    if(m && m[1] !== BUILD) montrerNouvelleVersion();
   }catch(e){ /* hors ligne : on reessaiera au prochain retour sur l'onglet */ }
 }
 function montrerNouvelleVersion(){
@@ -2666,5 +2763,5 @@ function montrerNouvelleVersion(){
   d.append(t, b, x);
   document.body.appendChild(d);
 }
-verifierVersion();
+setTimeout(verifierVersion, 3000);
 document.addEventListener('visibilitychange', () => { if(!document.hidden) verifierVersion(); });

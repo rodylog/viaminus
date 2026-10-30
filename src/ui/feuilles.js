@@ -19,13 +19,16 @@ function hauteurCran(c){
   const h = innerHeight;
   if(c === 'plein') return h - 76;
   if(c === 'moitie') return Math.round(h / 2);
-  return 96;
+  return 6 * parseFloat(getComputedStyle(document.documentElement).fontSize);   // 6rem, comme app.css (zoom texte)
 }
 function poserCran(c){
   panneau.dataset.cran = c;
   panneau.style.height = '';
   poignee.setAttribute('aria-expanded', String(c !== 'apercu'));
   poignee.setAttribute('aria-label', c === 'plein' ? 'Replier le panneau' : 'Déplier le panneau');
+  // Panneau en plein (mobile) : il recouvre les boutons de la carte ; on les retire du flux
+  // (visibility) plutot que de laisser un focus clavier atterrir derriere le panneau (2.4.11).
+  document.documentElement.classList.toggle('panneau-plein', MOBILE.matches && c === 'plein');
   // Replie : le corps ne defile pas (sinon un geste de defilement commence hors ecran).
   document.getElementById('corps').style.overflowY = c === 'apercu' ? 'hidden' : '';
 }
@@ -89,6 +92,13 @@ poserCran('apercu');
 // ---------- Feuilles modales ----------
 const voile = document.getElementById('voile');
 let modaleOuverte = null, modaleOrigine = null;
+// Feuille ouverte = le reste de la page est inerte (attribut inert : ni focus, ni clic, ni lecture
+// par les lecteurs d'ecran), en plus d'aria-modal. Les feuilles sont des enfants de #app, d'ou
+// une liste de ses autres enfants plutot qu'un aria-hidden sur #app. Le cycle Tab ci-dessous
+// reste en secours pour les navigateurs sans inert.
+const FOND = ['map', 'sansWebgl', 'haut', 'reticule', 'panneau'].map(id => document.getElementById(id))
+  .concat([...document.querySelectorAll('.boutons-carte')]).filter(Boolean);
+const fondInerte = on => FOND.forEach(el => { el.inert = on; });
 const FOCUSABLE = 'button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea,[tabindex]:not([tabindex="-1"])';
 function ouvrirFeuille(id, origine){
   const m = document.getElementById(id);
@@ -97,6 +107,7 @@ function ouvrirFeuille(id, origine){
   else if(!modaleOuverte) modaleOrigine = origine || document.activeElement;
   modaleOuverte = m;
   m.hidden = false; voile.hidden = false;
+  fondInerte(true);
   m.scrollTop = 0;
   // Le focus entre dans la feuille : premier champ ou bouton apres la croix, sinon le titre.
   const cibles = [...m.querySelectorAll(FOCUSABLE)].filter(el => !el.closest('.modale-tete'));
@@ -108,6 +119,7 @@ function fermerFeuille(){
   if(!modaleOuverte) return;
   const id = modaleOuverte.id;
   modaleOuverte.hidden = true; voile.hidden = true; modaleOuverte = null;
+  fondInerte(false);
   // Retour du focus a l'element d'origine ; s'il a ete redessine entre-temps (liste
   // des stations refaite apres un deplacement de la carte), a son homologue (meme data-id).
   let cible = modaleOrigine;
@@ -119,6 +131,22 @@ function fermerFeuille(){
 }
 voile.addEventListener('click', fermerFeuille);
 document.querySelectorAll('.modale .fermer').forEach(b => b.addEventListener('click', fermerFeuille));
+// Groupes de boutons (role="group" ou "toolbar" : tri, types de vehicule, categories, puissances,
+// detours, fond de carte, apparence) : les fleches passent d'un bouton au suivant, comme dans
+// une barre d'outils. Seuls les boutons sont concernes (une fleche dans un select change sa valeur).
+document.addEventListener('keydown', e => {
+  if(!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key) || e.altKey || e.ctrlKey || e.metaKey) return;
+  const a = document.activeElement;
+  if(!a || a.tagName !== 'BUTTON') return;
+  const g = a.closest('[role="group"],[role="toolbar"]');
+  if(!g) return;
+  const bs = [...g.querySelectorAll('button:not([disabled])')].filter(b => b.offsetParent !== null);
+  const i = bs.indexOf(a);
+  if(i < 0 || bs.length < 2) return;
+  const suivant = e.key === 'ArrowRight' || e.key === 'ArrowDown';
+  bs[(i + (suivant ? 1 : bs.length - 1)) % bs.length].focus();
+  e.preventDefault();
+});
 // Le focus reste dans la feuille ouverte (Tab cyclique) ; Echap ferme tout ce qui peut l'etre.
 document.addEventListener('keydown', e => {
   if(e.key === 'Escape'){
