@@ -150,14 +150,14 @@ Le gabarit vit dans `src/` et `generate.py` l'assemble en un seul fichier :
 | `src/plan.js` | algorithme du plan de pleins (DP sur l'état du réservoir, coût du voyage, prix moyen, économie vs le plus cher) et du plan de charge électrique (`optimiserPlanElectrique`, DP sur l'énergie à bord, temps de charge), pur, exporté pour Node |
 | `src/conso.js` | table de consommation embarquée (`estimerConso`), pure, exportée pour Node |
 | `src/irve.js` | bornes de recharge : lecture des champs Etalab (`parseBool`, `parsePuissance`, `parseXY`), horaires (`ouvertA`), compatibilité véhicule / borne, filtres, couloir le long d'un trajet (`bornesSurTrajet`) ; pur, exporté pour Node |
-| `src/fixtures/irve-echantillon-34.csv`, `src/fixtures/irve-34.json` | 12 points de charge réels de l'Hérault (fichier du 28/10/2026) et leur sortie par `irve_build.py` : fixture des tests, seule donnée IRVE commitée |
+| `src/fixtures/irve-echantillon-34.csv`, `src/fixtures/irve-34.json` | 12 points de charge réels de l'Hérault (fichier du 28/10/2026) + 1 ligne synthétique (code postal seulement dans l'adresse), et leur sortie par `irve_build.py` : fixture des tests, seule donnée IRVE commitée |
 | `src/ui/icones.js` | icônes SVG inline (jeu Lucide, MIT) : `ico('nom')` |
 | `src/ui/feuilles.js` | feuille glissante à trois crans (mobile), feuilles modales, Échap, focus |
 | `src/ui/fond.js` | carte MapLibre : créée sans style, style IGN vectoriel posé une seule fois, transformation sombre, orthophoto, repli raster IGN puis OSM, WebGL absent |
 | `src/ui/assistant.js` | assistant véhicule en trois écrans (`creerAssistant(ctx)`) |
 | `src/app.js` | données, rendu (marqueurs, liste, carte-héros du plan), garage, itinéraire (aller-retour), partage, import par l'URL, position, menus |
 | `src/plan.test.js`, `src/conso.test.js`, `src/irve.test.js`, `src/plan-elec.test.js` | tests des modules purs |
-| `irve_build.py` | Base nationale des IRVE (CSV, 112 Mo) → `data/irve/<dep>.json` + `index.json`, bibliothèque standard seule |
+| `irve_build.py`, `irve_build_test.py` | Base nationale des IRVE (CSV, 114 Mo) → `data/irve/<dep>.json` + `index.json`, bibliothèque standard seule ; tests `unittest` du département et de l'emprise |
 
 Les scripts sont assemblés dans l'ordre de `SCRIPTS` (`generate.py`) en un seul
 `<script>` : `plan.js`, `conso.js`, `irve.js`, `ui/*.js`, puis `app.js`.
@@ -176,7 +176,12 @@ phase livre la mécanique, la phase 2 l'interface.
 
 ```bash
 python3 irve_build.py consolidation-etalab-schema-irve-statique-v-2.3.1-AAAAMMJJ.csv --sortie data/irve/
+python3 irve_build_test.py   # tests du script (département, emprise)
 ```
+
+Mesuré le 30/10/2026 sur le fichier du jour (164 078 lignes, 114 Mo) : 3,5 s, 748 Mo de
+mémoire, 151 254 PDC après 11 987 doublons retirés, 837 rejets hors France, 8 185 puissances
+inconnues, 49 662 stations, 13,8 Mo écrits (Hérault : 443 stations, 135 Ko).
 
 - `data/irve/<dep>.json` : tableau de stations, une station = plusieurs points de charge
   regroupés par `id_station_itinerance` (à défaut nom + lon/lat à 4 décimales), clés
@@ -185,7 +190,15 @@ python3 irve_build.py consolidation-etalab-schema-irve-statique-v-2.3.1-AAAAMMJJ
   "gratuit","cb","acte","h" (horaires bruts normalisés),"pmr","acces" (`libre` / `reserve`),
   "maj"}`. Booléens à trois états : `true`, `false`, `null` = inconnu (jamais faux par défaut).
 - `data/irve/index.json` : `{"genere","source","departements":{"34":{"stations","pdc","octets","bbox"}}}`
-  — la `bbox` sert à charger les bons départements depuis l'emprise de la carte.
+  — la `bbox` sert à charger les bons départements depuis l'emprise de la carte. Elle est
+  **robuste** : les stations à plus de 150 km de la médiane de leur département (coordonnées
+  aberrantes : 8 PDC de l'Hérault étaient à Brest ou Paris le 30/10/2026) n'entrent pas dans
+  son calcul, comptées dans le rapport.
+- Département, dans l'ordre (49 % des stations tombaient dans `00.json` avant, 30/10/2026) :
+  `consolidated_code_postal`, puis `code_insee_commune` (2A/2B compris), puis le dernier groupe
+  de 5 chiffres d'`adresse_station` (`20xxx` → 2A si latitude < 42,0, sinon 2B), puis l'emprise
+  robuste des départements déjà attribués qui contient le point (la plus petite en cas de
+  chevauchement) ; `00.json` ne garde que l'inattribuable. Le rapport compte chaque voie.
 - `data/irve/` est dans `.gitignore` : artefact de build régénéré hors GitHub, servi **à côté
   de la page** (`connect-src 'self'`), jamais embarqué dans le HTML (112 Mo de CSV, la page
   doit rester sous 1,6 Mo). Seule exception commitée : `src/fixtures/irve-34.json`.
@@ -193,10 +206,10 @@ python3 irve_build.py consolidation-etalab-schema-irve-statique-v-2.3.1-AAAAMMJJ
   `coordonneesXY` avec ou sans espace, coordonnées consolidées fausses (`consolidated_is_lon_lat_correct`),
   rejet hors France métropolitaine et Corse, puissances en watts (> 1 000 → ÷ 1 000), doublons
   d'`id_pdc_itinerance` entre jeux (`date_maj` la plus récente gardée), accents cassés
-  (« Accčs libre »), `20` → `2A`/`2B` d'après l'INSEE. Toute chaîne est échappée à l'ingestion
+  (« Accčs libre »). Toute chaîne est échappée à l'ingestion
   (caractères de contrôle et chevrons retirés, longueur bornée) et sera rendue en texte.
-- Le script affiche un rapport : lignes lues, rejets, doublons, PDC, stations, puissances
-  inconnues, taille écrite.
+- Le script affiche un rapport : lignes lues, rejets, doublons, PDC, stations, département par
+  voie, puissances inconnues, stations exclues des emprises, taille écrite.
 
 La CSP est recalculée à chaque génération à partir des scripts réellement inline
 (bibliothèque + application) ; un nouvel hôte réseau doit être ajouté à
