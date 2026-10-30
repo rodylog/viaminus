@@ -56,7 +56,7 @@ MAPLIBRE = {
         "sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp"),
 }
 # Scripts du gabarit, dans l'ordre d'assemblage (un seul <script> a la fin de la page).
-SCRIPTS = ["plan.js", "conso.js", "ui/icones.js", "ui/feuilles.js", "ui/fond.js", "ui/assistant.js", "app.js"]
+SCRIPTS = ["plan.js", "conso.js", "irve.js", "ui/icones.js", "ui/feuilles.js", "ui/fond.js", "ui/assistant.js", "app.js"]
 
 
 def _get(url, raw=False):
@@ -137,11 +137,13 @@ def lire(nom):
 
 
 def assembler():
-    """Le gabarit vit dans src/ (index.html, app.css, plan.js, ui/*.js, app.js) ; le
-    livrable reste UN fichier : tout est inline ici, dans l'ordre de SCRIPTS. plan.js
-    (algorithme des pleins) vient en tete pour rester testable seul (node) ; les
-    modules d'interface (icones, feuilles, fond de carte) precedent app.js qui les
-    utilise."""
+    """Le gabarit vit dans src/ (index.html, app.css, plan.js, conso.js, irve.js, ui/*.js,
+    app.js) ; le livrable reste UN fichier : tout est inline ici, dans l'ordre de SCRIPTS.
+    plan.js (algorithme des pleins et du plan de charge), conso.js et irve.js (bornes de
+    recharge) viennent en tete pour rester testables seuls (node) ; les modules
+    d'interface (icones, feuilles, fond de carte) precedent app.js qui les utilise.
+    Les donnees IRVE (data/irve/*.json, produites par irve_build.py) ne sont PAS
+    embarquees : servies a cote de la page, chargees en fetch ('self')."""
     html = lire("index.html")
     html = html.replace("__APP_CSS__", lire("app.css").rstrip("\n"))
     html = html.replace("__APP_JS__", "\n\n".join(lire(n).rstrip("\n") for n in SCRIPTS))

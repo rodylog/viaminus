@@ -147,21 +147,69 @@ Le gabarit vit dans `src/` et `generate.py` l'assemble en un seul fichier :
 |---|---|
 | `src/index.html` | structure de la page (`__APP_CSS__`, `__APP_JS__` = points d'insertion) |
 | `src/app.css` | styles ; jetons dans `:root` (couleurs métier, surfaces, rayons), mode sombre, mise en page mobile / bureau |
-| `src/plan.js` | algorithme du plan de pleins (DP sur l'état du réservoir, coût du voyage, prix moyen, économie vs le plus cher), pur, exporté pour Node |
+| `src/plan.js` | algorithme du plan de pleins (DP sur l'état du réservoir, coût du voyage, prix moyen, économie vs le plus cher) et du plan de charge électrique (`optimiserPlanElectrique`, DP sur l'énergie à bord, temps de charge), pur, exporté pour Node |
 | `src/conso.js` | table de consommation embarquée (`estimerConso`), pure, exportée pour Node |
+| `src/irve.js` | bornes de recharge : lecture des champs Etalab (`parseBool`, `parsePuissance`, `parseXY`), horaires (`ouvertA`), compatibilité véhicule / borne, filtres, couloir le long d'un trajet (`bornesSurTrajet`) ; pur, exporté pour Node |
+| `src/fixtures/irve-echantillon-34.csv`, `src/fixtures/irve-34.json` | 12 points de charge réels de l'Hérault (fichier du 28/10/2026) + 1 ligne synthétique (code postal seulement dans l'adresse), et leur sortie par `irve_build.py` : fixture des tests, seule donnée IRVE commitée |
 | `src/ui/icones.js` | icônes SVG inline (jeu Lucide, MIT) : `ico('nom')` |
 | `src/ui/feuilles.js` | feuille glissante à trois crans (mobile), feuilles modales, Échap, focus |
 | `src/ui/fond.js` | carte MapLibre : créée sans style, style IGN vectoriel posé une seule fois, transformation sombre, orthophoto, repli raster IGN puis OSM, WebGL absent |
 | `src/ui/assistant.js` | assistant véhicule en trois écrans (`creerAssistant(ctx)`) |
 | `src/app.js` | données, rendu (marqueurs, liste, carte-héros du plan), garage, itinéraire (aller-retour), partage, import par l'URL, position, menus |
-| `src/plan.test.js`, `src/conso.test.js` | tests des modules purs |
+| `src/plan.test.js`, `src/conso.test.js`, `src/irve.test.js`, `src/plan-elec.test.js` | tests des modules purs |
+| `irve_build.py`, `irve_build_test.py` | Base nationale des IRVE (CSV, 114 Mo) → `data/irve/<dep>.json` + `index.json`, bibliothèque standard seule ; tests `unittest` du département et de l'emprise |
 
 Les scripts sont assemblés dans l'ordre de `SCRIPTS` (`generate.py`) en un seul
-`<script>` : `plan.js`, `conso.js`, `ui/*.js`, puis `app.js`.
+`<script>` : `plan.js`, `conso.js`, `irve.js`, `ui/*.js`, puis `app.js`.
 
 ```bash
-node --test src/plan.test.js src/conso.test.js   # tests des modules purs (Node ≥ 20)
+node --test src/plan.test.js src/conso.test.js src/irve.test.js src/plan-elec.test.js   # modules purs (Node ≥ 20)
 ```
+
+### Bornes de recharge (phase 1, 28/10/2026 : données, module pur, plan de charge — sans interface)
+
+L'électricité est traitée comme un carburant : un véhicule électrique aura sa fiche
+(`batterieKwh`, `consoKwh100`, `kwMaxDC`, `kwMaxAC`, prise `ccs` / `chademo` / `t2`,
+réserve 15 %, départ 80 %), les bornes publiques viendront sur la carte et le trajet aura
+son **plan de charge** (où s'arrêter, combien de temps, pourcentage à l'arrivée). Cette
+phase livre la mécanique, la phase 2 l'interface.
+
+```bash
+python3 irve_build.py consolidation-etalab-schema-irve-statique-v-2.3.1-AAAAMMJJ.csv --sortie data/irve/
+python3 irve_build_test.py   # tests du script (département, emprise)
+```
+
+Mesuré le 30/10/2026 sur le fichier du jour (164 078 lignes, 114 Mo) : 3,5 s, 748 Mo de
+mémoire, 151 254 PDC après 11 987 doublons retirés, 837 rejets hors France, 8 185 puissances
+inconnues, 49 662 stations, 13,8 Mo écrits (Hérault : 443 stations, 135 Ko).
+
+- `data/irve/<dep>.json` : tableau de stations, une station = plusieurs points de charge
+  regroupés par `id_station_itinerance` (à défaut nom + lon/lat à 4 décimales), clés
+  courtes : `{"id","n" (nom),"op" (opérateur ou enseigne),"lon","lat","pdc" (lignes
+  comptées, pas `nbre_pdc`),"kw" (max),"kwmin","ac" (Type 2 ou EF),"ccs","chademo",
+  "gratuit","cb","acte","h" (horaires bruts normalisés),"pmr","acces" (`libre` / `reserve`),
+  "maj"}`. Booléens à trois états : `true`, `false`, `null` = inconnu (jamais faux par défaut).
+- `data/irve/index.json` : `{"genere","source","departements":{"34":{"stations","pdc","octets","bbox"}}}`
+  — la `bbox` sert à charger les bons départements depuis l'emprise de la carte. Elle est
+  **robuste** : les stations à plus de 150 km de la médiane de leur département (coordonnées
+  aberrantes : 8 PDC de l'Hérault étaient à Brest ou Paris le 30/10/2026) n'entrent pas dans
+  son calcul, comptées dans le rapport.
+- Département, dans l'ordre (49 % des stations tombaient dans `00.json` avant, 30/10/2026) :
+  `consolidated_code_postal`, puis `code_insee_commune` (2A/2B compris), puis le dernier groupe
+  de 5 chiffres d'`adresse_station` (`20xxx` → 2A si latitude < 42,0, sinon 2B), puis l'emprise
+  robuste des départements déjà attribués qui contient le point (la plus petite en cas de
+  chevauchement) ; `00.json` ne garde que l'inattribuable. Le rapport compte chaque voie.
+- `data/irve/` est dans `.gitignore` : artefact de build régénéré hors GitHub, servi **à côté
+  de la page** (`connect-src 'self'`), jamais embarqué dans le HTML (112 Mo de CSV, la page
+  doit rester sous 1,6 Mo). Seule exception commitée : `src/fixtures/irve-34.json`.
+- Pièges du fichier réel absorbés (mesurés le 28/10/2026) : booléens `True`/`true`/`TRUE`/`1`/vide,
+  `coordonneesXY` avec ou sans espace, coordonnées consolidées fausses (`consolidated_is_lon_lat_correct`),
+  rejet hors France métropolitaine et Corse, puissances en watts (> 1 000 → ÷ 1 000), doublons
+  d'`id_pdc_itinerance` entre jeux (`date_maj` la plus récente gardée), accents cassés
+  (« Accčs libre »). Toute chaîne est échappée à l'ingestion
+  (caractères de contrôle et chevrons retirés, longueur bornée) et sera rendue en texte.
+- Le script affiche un rapport : lignes lues, rejets, doublons, PDC, stations, département par
+  voie, puissances inconnues, stations exclues des emprises, taille écrite.
 
 La CSP est recalculée à chaque génération à partir des scripts réellement inline
 (bibliothèque + application) ; un nouvel hôte réseau doit être ajouté à
@@ -174,6 +222,10 @@ sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
 - Fonds de carte : Plan IGN / orthophotos (Géoplateforme) ; OpenStreetMap en secours
   seulement si l'IGN ne répond pas (CARTO retiré le 17/09/2026 : clé désormais exigée).
 - Itinéraires : Géoplateforme IGN. Géocodage : Base Adresse Nationale.
+- Bornes de recharge : [Base nationale des IRVE](https://www.data.gouv.fr/datasets/fichier-consolide-des-bornes-de-recharge-pour-vehicules-electriques/)
+  (données statiques, schéma Etalab v2.3.1, consolidation quotidienne de data.gouv.fr,
+  Licence Ouverte Etalab 2.0). Données **statiques** : aucune disponibilité en temps réel
+  et **aucun prix au kWh** — aucune donnée ouverte française n'en publie (vérifié le 28/10/2026).
 - [MapLibre GL JS](https://maplibre.org) (BSD-3), icônes [Lucide](https://lucide.dev) (MIT). Code : MIT.
 
 ## Limites connues
@@ -183,3 +235,9 @@ sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
 - `file://` : Firefox y refuse la géolocalisation et cloisonne le stockage par
   fichier — héberger en https règle les deux.
 - 400 stations chargées par zone au maximum (annoncé à l'écran quand ça tronque).
+- Plan de charge électrique : il optimise le **temps de charge**, pas l'euro (pas de prix au
+  kWh dans les données ouvertes) ; courbe de charge simplifiée en deux paliers (puissance
+  pleine jusqu'à 80 % de la batterie, moitié au-delà) et 5 min de branchement par arrêt,
+  énergies au kWh entier (consommation de chaque tronçon arrondie au kWh supérieur) : un
+  ordre de grandeur, pas la courbe réelle du véhicule. Horaires : syntaxe simplifiée
+  d'`opening_hours` ; ce qui n'est pas lisible vaut « inconnu », jamais « fermé ».

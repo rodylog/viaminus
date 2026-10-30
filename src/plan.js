@@ -210,6 +210,145 @@ function prixMoyen(r, lkm, g0){
   return litres > 0 ? r.voyage / litres : null;
 }
 
+// ---- Plan de charge electrique (phase 1, 28/10/2026) ----
+// L'electricite traitee « comme un carburant » : memes candidats tries par km ({s, km, e}),
+// meme discretisation / elagage (MAX_CAND), mais l'objectif est le TEMPS DE CHARGE, pas
+// l'euro : la Base nationale des IRVE ne publie aucun prix au kWh (voir irve.js).
+//
+// Vehicule : {batterieKwh, consoKwh100, kwMaxDC, kwMaxAC, prise: 'ccs' | 'chademo' | 't2',
+// reservePct (defaut 15), departPct (defaut 80), arriveePct (defaut = reservePct)}.
+// Modele : etat = energie a bord, en kWh ENTIERS (tranche de 1 kWh) ; consommation de chaque
+// troncon arrondie au kWh superieur et reserve au kWh superieur (prudent) ; on ne descend
+// jamais sous la reserve, et on arrive avec au moins arriveePct. Chaque arret coute
+// ARRET_ELEC = 5 min de branchement + energie rechargee / puissance effective, ou puissance
+// effective = min(kw de la borne, kwMax du vehicule pour ce courant : continu si la borne
+// a la prise DC du vehicule, alternatif sinon) et, au-dela de SEUIL_COURBE = 80 % de la
+// batterie, cette puissance est DIVISEE PAR DEUX (courbe de charge simplifiee en deux
+// paliers : les vraies courbes decroissent progressivement, ceci donne l'ordre de grandeur
+// sans connaitre le modele du vehicule). A chaque arret, on recharge soit JUSTE ce qu'il
+// faut pour atteindre l'arret suivant (ou l'arrivee) avec la reserve, soit jusqu'a 80 %,
+// soit a 100 % : le cout de charge etant lineaire par morceaux, l'optimum est sur ces
+// points. Objectif : minutes de charge totales minimales ; a egalite, moins d'arrets.
+// Le detour (e km) coute de l'energie a l'aller et au retour, comme pour le carburant ; son
+// temps en route est l'affaire de l'appelant (app.js le compte deja pour les pleins).
+const ARRET_ELEC = 5;        // minutes de branchement par arret
+const SEUIL_COURBE = 0.8;    // part de la batterie au-dela de laquelle la puissance est divisee par deux
+
+// Puissance effective (kW) de la borne pour ce vehicule ; null si incompatible (prise
+// absente, ou puissance inconnue). DC si la borne offre la prise DC du vehicule, sinon AC
+// (Type 2 ou EF) : une voiture CCS ou CHAdeMO se recharge aussi en alternatif.
+function puissanceEffective(station, veh){
+  if(!station || !(station.kw > 0) || !veh) return null;
+  const dc = (veh.prise === 'ccs' && station.ccs === true) || (veh.prise === 'chademo' && station.chademo === true);
+  if(dc && veh.kwMaxDC > 0) return Math.min(station.kw, veh.kwMaxDC);
+  if(station.ac === true && veh.kwMaxAC > 0) return Math.min(station.kw, veh.kwMaxAC);
+  return null;
+}
+
+// Energies du vehicule : batterie B, reserve R, energie au depart E0, minimum a l'arrivee Ea
+// (kWh), kWh/km, autonomie utile au depart A (km) et autonomie d'une batterie pleine (km).
+// null si batterie ou conso manquent. A (km) et lkm (kWh/km) donnes remplacent ceux du vehicule.
+function autonomieElectrique(veh, A, lkm){
+  if(!veh) return null;
+  const B = +veh.batterieKwh, conso = +veh.consoKwh100;
+  const kwhKm = lkm > 0 ? +lkm : (conso > 0 ? conso / 100 : 0);
+  if(!(B > 0) || !(kwhKm > 0)) return null;
+  const pct = (v, d) => Math.max(0, Math.min(100, v != null && v !== '' ? +v : d));
+  const reservePct = pct(veh.reservePct, 15), departPct = pct(veh.departPct, 80), arriveePct = pct(veh.arriveePct, reservePct);
+  const R = B * reservePct / 100;
+  const E0 = A != null && A >= 0 ? Math.min(B, R + A * kwhKm) : B * departPct / 100;
+  return {B, R, E0, Ea: B * arriveePct / 100, lkm: kwhKm, A: Math.max(0, E0 - R) / kwhKm, plein: Math.max(0, B - R) / kwhKm};
+}
+
+// Minutes pour passer de e a T kWh (entiers) a P kW, puissance divisee par deux au-dela de e80.
+function tempsCharge(e, T, P, e80){
+  const bas = Math.max(0, Math.min(T, e80) - Math.min(e, e80));
+  const haut = Math.max(0, Math.max(T, e80) - Math.max(e, e80));
+  return 60 * (bas / P + haut / (P / 2));
+}
+
+// Elagage : au-dela de MAX_CAND, les 2 plus puissantes (puis les plus proches de la route)
+// par tranche de trajet.
+function elaguerElec(cand, total){
+  if(cand.length <= MAX_CAND) return cand;
+  const tranche = total / (MAX_CAND / 2), bacs = new Map();
+  cand.forEach(c => { const k = Math.floor(c.km / tranche); (bacs.get(k) || bacs.set(k, []).get(k)).push(c); });
+  const gardes = [];
+  bacs.forEach(l => { l.sort((x, y) => y.kw - x.kw || x.e - y.e); gardes.push(...l.slice(0, 2)); });
+  return gardes.sort((x, y) => x.km - y.km);
+}
+
+// bornes : [{s: station (format irve.js), km, e}] le long du trajet ; A : autonomie utile au
+// depart en km (null = departPct du vehicule) ; total : km du trajet ; lkm : kWh/km (null =
+// consoKwh100 / 100) ; veh : vehicule electrique ; opts.departPct : etat de charge au depart
+// (%, remplace celui du vehicule).
+// Renvoie {faisable, arrets: [{station, kmDepuisDepart, detourKm, kw, kwhCharges, minutes,
+// pctArrivee (en arrivant a la borne), pctDepart (en repartant)}], minutesCharge, pctArrivee
+// (a l'arrivee du trajet), energieKwh (consommee sur le trajet, detours compris), motif}.
+// motif : 'faisable sans recharge', 'aucune borne compatible dans le couloir', 'bornes trop
+// espacees pour l\'autonomie', 'vehicule incomplet'.
+function optimiserPlanElectrique(bornes, A, total, lkm, veh, opts = {}){
+  const v = opts.departPct != null ? Object.assign({}, veh, {departPct: opts.departPct}) : veh;
+  const en = autonomieElectrique(v, A, lkm);
+  if(!en) return {faisable: false, arrets: [], minutesCharge: null, pctArrivee: null, energieKwh: null, motif: 'vehicule incomplet'};
+  const {B, R, E0, Ea} = en;
+  const kwhKm = en.lkm;
+  const Bi = Math.floor(B), Ri = Math.ceil(R - 1e-9), E0i = Math.min(Bi, Math.floor(E0 + 1e-9)), Eai = Math.ceil(Ea - 1e-9);
+  const e80 = Math.floor(SEUIL_COURBE * B + 1e-9);
+  const consTotal = Math.round(kwhKm * total * 1000) / 1000;
+  const pctDe = e => Math.round(e / B * 1000) / 10;
+  // Faisable sans recharge : l'energie du depart emmene a l'arrivee au-dessus du minimum.
+  if(E0 - consTotal >= Ea - 1e-9)
+    return {faisable: true, arrets: [], minutesCharge: 0, pctArrivee: pctDe(E0 - consTotal), energieKwh: consTotal, motif: 'faisable sans recharge'};
+  // Candidats compatibles, puissance effective calculee une fois, puis elagage.
+  const compat = (bornes || []).map(c => ({s: c.s, km: c.km, e: c.e || 0, kw: puissanceEffective(c.s, v)}))
+    .filter(c => c.kw > 0 && c.km >= 0 && c.km <= total).sort((x, y) => x.km - y.km);
+  const infaisable = motif => ({faisable: false, arrets: [], minutesCharge: null, pctArrivee: null, energieKwh: consTotal, motif});
+  if(!compat.length) return infaisable('aucune borne compatible dans le couloir');
+  const cand = elaguerElec(compat, total);
+  const n = cand.length, FIN = n;
+  const km = i => i < 0 ? 0 : i >= n ? total : cand[i].km;
+  const ex = i => (i < 0 || i >= n) ? 0 : cand[i].e;
+  const cons = (j, k) => Math.ceil(kwhKm * (km(k) - km(j) + ex(j) + ex(k)) - 1e-9);
+  // dp[k][e] = meilleur {min, arr, pred} en arrivant a la borne k avec e kWh (entier).
+  const INF = Infinity;
+  const dp = []; for(let k = 0; k < n; k++){ dp.push(new Array(Bi + 1).fill(null)); }
+  let fin = null;
+  const mieux = (a, m, r) => !a || m < a.min - 1e-9 || (Math.abs(m - a.min) <= 1e-9 && r < a.arr);
+  const poser = (k, e, m, r, pred) => {
+    if(k === FIN){ if(mieux(fin, m, r)) fin = {min: m, arr: r, e, pred}; return; }
+    if(mieux(dp[k][e], m, r)) dp[k][e] = {min: m, arr: r, pred};
+  };
+  const depuis = (j, e, m, r) => {
+    for(let k = j + 1; k <= FIN; k++){
+      const c = cons(j, k), besoin = c + (k === FIN ? Eai : Ri);
+      if(besoin > Bi) { if(c > Bi) break; continue; }   // inatteignable meme batterie pleine
+      if(j < 0){ if(e >= besoin) poser(k, e - c, m, r, null); continue; }
+      const P = cand[j].kw;
+      // Cibles : juste ce qu'il faut, 80 %, 100 % (jamais « ne pas charger » : on ne
+      // s'arrete pas pour rien).
+      for(const T of [Math.max(e, besoin), e80, Bi]){
+        if(T < besoin || T <= e || T > Bi) continue;
+        poser(k, T - c, m + ARRET_ELEC + tempsCharge(e, T, P, e80), r + 1, {j, e, T});
+      }
+    }
+  };
+  depuis(-1, E0i, 0, 0);
+  for(let j = 0; j < n; j++) for(let e = 0; e <= Bi; e++) if(dp[j][e]) depuis(j, e, dp[j][e].min, dp[j][e].arr);
+  if(!fin) return infaisable('bornes trop espacees pour l\'autonomie');
+  // Remontee du dernier arret au premier.
+  const arrets = [];
+  let p = fin.pred;
+  while(p){
+    const c = cand[p.j];
+    arrets.unshift({station: c.s, kmDepuisDepart: c.km, detourKm: c.e, kw: c.kw, kwhCharges: p.T - p.e,
+                    minutes: ARRET_ELEC + tempsCharge(p.e, p.T, c.kw, e80), pctArrivee: pctDe(p.e), pctDepart: pctDe(p.T)});
+    p = dp[p.j][p.e].pred;
+  }
+  return {faisable: true, arrets, minutesCharge: fin.min, pctArrivee: pctDe(fin.e), energieKwh: consTotal, motif: null};
+}
+
 // Export Node (tests) ; sans effet dans la page, ou `module` n'existe pas.
 if(typeof module !== 'undefined' && module.exports)
-  module.exports = {optimiserPlan, pleinsExtremites, autonomieUtile, coutVoyage, prixMax, prixMoyen, economieVsPlusCher};
+  module.exports = {optimiserPlan, pleinsExtremites, autonomieUtile, coutVoyage, prixMax, prixMoyen, economieVsPlusCher,
+                    optimiserPlanElectrique, autonomieElectrique, puissanceEffective, tempsCharge};
