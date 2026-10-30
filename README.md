@@ -74,6 +74,24 @@ dans **un seul fichier HTML** partageable — sans compte, sans serveur, sans tr
   Auchan) reprennent la même déclaration (255 blocs Leclerc sur 298 identiques au flux,
   sondage du 26/10), U et Intermarché citent le flux, Waze et Zagaz sont des saisies
   d'utilisateurs souvent anciennes. Seul le terrain (signalement sur place) fait foi.
+- **Signalements partagés « pompe vide »** (30/10/2026, partie 2 ; la partie 1 est le service,
+  `worker/` sur la branche `claude/signalements-worker`) : le flux officiel ne sait pas qu'une pompe
+  est vide, les personnes sur place, si. Dans la fiche station, sous chaque carburant vendu, deux
+  boutons « Pompe vide » et « De nouveau dispo » (44 px) envoient le constat à un service minimal et
+  anonyme (Cloudflare Worker + D1) qui sert l'agrégat par station et carburant sur 48 h. La liste
+  et la fiche portent alors un badge sobre, couleur **et** texte — « E85 signalé vide il y a 2 h (3) »
+  en rouge, « E85 de nouveau dispo il y a 40 min » en vert (`src/signalements.js`, pur, testé) ;
+  le plan de pleins écarte les candidates signalées vides depuis moins de 12 h **avant**
+  `optimiserPlan` (option « Éviter les pompes signalées vides (12 h) », activée d'office) et la
+  carte-héros dit combien et lesquelles ; si plus aucun plan ne passe sans elles, il les garde et le
+  dit (avertissement rouge, alerte sur chaque étape concernée). Lecture par lots de 400
+  identifiants, cache mémoire 60 s, réponses obsolètes abandonnées comme pour le flux, échec réseau
+  silencieux (la fonction s'efface). Un signalement par station et carburant par 6 h (journal local
+  `fuelpilot:signalements`, boutons désactivés avec le délai restant), 429 du service expliqué en
+  clair. **Ce qui est envoyé : l'identifiant de la station, le carburant et l'état — rien d'autre :
+  ni position, ni véhicule, ni identifiant d'appareil, ni cookie.** L'hôte du service est fixé à la
+  génération (`generate.py --signalements-url https://…`) ; sans lui, rien n'est envoyé, rien n'est
+  affiché et aucun hôte n'entre dans la CSP (voir « Signalements partagés » plus bas).
 - **Faire un détour ?** (26/10/2026, remplace le sélecteur de couloir du
   formulaire et les mini-barres) : le plan est refait pour 1, 2, 5, 10 et 20 km
   de la route ; ne restent que les choix utiles (faisables, aucun autre à la fois
@@ -219,6 +237,7 @@ Le gabarit vit dans `src/` et `generate.py` l'assemble en un seul fichier :
 | `src/bornes.js` | bornes côté interface : `departementsPourEmprise(index, bbox)`, `classePuissance` (rapide / moyen / lent / inconnu), `libellePuissance`, `libelleHoraires`, `libelleMaj` (donnée ancienne > 365 j), `branchable`, `libellePrises`, `libellePaiement` ; pur, exporté pour Node |
 | `src/partage.js` | format `#veh=` : `vehVersParam` / `paramVersVeh`, format historique et 7ᵉ champ électrique, lien ancien toujours lu ; pur, exporté pour Node |
 | `src/es.js` | Espagne : `nombreES`, `normaliserStationES` (forme d'une station française), `ouvertA` / `resumerHorario` (horaires `L-S: 06:00-22:00; D: …`), `provincesPourEmprise` / `enEspagne` ; pur, exporté pour Node |
+| `src/signalements.js` | signalements partagés « pompe vide » : `libelle` (badge), `aEviter` (seuil 1, fenêtre 12 h, un « ok » plus récent remet à zéro), `peutSignaler` / `delaiRestant` / `noterSignalement` (journal local, 6 h), `lotsIds` (paquets de 400) ; pur, exporté pour Node |
 | `src/es-provincias.json` | les 52 provinces : id → [nom, nb de stations, latMin, latMax, lonMin, lonMax], calculées le 28/10/2026 depuis le fichier complet ; inliné à la génération |
 | `src/fixtures/es-echantillon-girona.json` | réponse réelle `FiltroProvincia/17` tronquée à 3 stations (tests) |
 | `src/fixtures/irve-echantillon-34.csv`, `src/fixtures/irve-34.json` | 12 points de charge réels de l'Hérault (fichier du 28/10/2026) + 1 ligne synthétique (code postal seulement dans l'adresse), et leur sortie par `irve_build.py` : fixture des tests, seule donnée IRVE commitée |
@@ -227,11 +246,12 @@ Le gabarit vit dans `src/` et `generate.py` l'assemble en un seul fichier :
 | `src/ui/fond.js` | carte MapLibre : créée sans style, style IGN vectoriel posé une seule fois, transformation sombre, orthophoto, repli raster IGN puis OSM, WebGL absent |
 | `src/ui/assistant.js` | assistant véhicule en trois écrans (`creerAssistant(ctx)`), énergie thermique ou électrique |
 | `src/app.js` | données, rendu (`rendu()` aiguille vers `renduCarburant()` — stations, plan de pleins, inchangé — ou `renduElec()` — bornes, plan de charge), garage, itinéraire (aller-retour), partage, import par l'URL, position, menus, bornes (`chargerBornes`, `renduBornes`, `ouvrirBorne`) |
-| `src/plan.test.js`, `src/conso.test.js`, `src/irve.test.js`, `src/plan-elec.test.js`, `src/bornes.test.js`, `src/partage.test.js`, `src/es.test.js` | tests des modules purs |
+| `src/plan.test.js`, `src/conso.test.js`, `src/irve.test.js`, `src/plan-elec.test.js`, `src/bornes.test.js`, `src/partage.test.js`, `src/es.test.js`, `src/signalements.test.js` | tests des modules purs |
+| `recette/signalements.js`, `recette/captures/` | recette headless des signalements (Playwright, services simulés par `route`) et ses captures |
 | `irve_build.py`, `irve_build_test.py` | Base nationale des IRVE (CSV, 114 Mo) → `data/irve/<dep>.json` + `index.json`, bibliothèque standard seule ; tests `unittest` du département et de l'emprise |
 
 Les scripts sont assemblés dans l'ordre de `SCRIPTS` (`generate.py`) en un seul
-`<script>` : `plan.js`, `conso.js`, `irve.js`, `bornes.js`, `partage.js`, `es.js`, `ui/*.js`, puis `app.js`.
+`<script>` : `plan.js`, `conso.js`, `irve.js`, `bornes.js`, `partage.js`, `es.js`, `signalements.js`, `ui/*.js`, puis `app.js`.
 
 ```bash
 node --test src/*.test.js   # modules purs (Node ≥ 20)
@@ -291,6 +311,61 @@ La CSP est recalculée à chaque génération à partir des scripts réellement 
 `connect-src` / `img-src` dans `csp_meta()`. MapLibre charge tuiles, glyphes et
 sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
 
+## Signalements partagés
+
+Un service minimal, anonyme, hébergé sur Cloudflare (Worker + base D1) reçoit les signalements
+« pompe vide » / « de nouveau dispo » des personnes sur place et sert l'agrégat par station et
+carburant sur 48 h — la seule vraie source, puisque aucun flux automatique ne détecte une pompe
+vide (constat du 26/10/2026). Partie 1 (le service : code, routes, tests, déploiement, politique
+de confidentialité) : `worker/README.md` sur la branche `claude/signalements-worker`. Partie 2
+(cette page : boutons, badges, plan) : `src/signalements.js`, `src/app.js`.
+
+**Contrat utilisé** : `POST {BASE}/v1/signalement` corps `{"station":"12345678","carburant":"e85","etat":"vide"|"ok"}`
+→ 201 et l'agrégat de la station, 400, 429 (5 par heure, 1 par station et carburant par 6 h) ;
+`GET {BASE}/v1/etat?ids=12345678,ES-2777,…` (400 identifiants au plus) → `{"12345678":{"e85":{"vide":2,"ok":0,"dernier":1730280000}}}`
+sur 48 h, `dernier` en secondes UTC, stations sans signalement absentes, cache HTTP 60 s. CORS
+limité à `https://rodylog.github.io` (et `http://localhost` en développement) : la page doit être
+servie depuis cette origine. Identifiants = `id` des stations françaises (8 chiffres) et
+`ES-<IDEESS>` ; les bornes de recharge n'ont pas de signalement (le service ne les connaît pas, le
+plan de charge n'est pas concerné).
+
+**Génération** : l'hôte du service est fixé à la génération, jamais dans le code :
+
+```bash
+./generate.py --signalements-url https://viaminus-signalements.<compte>.workers.dev
+```
+
+Format attendu : `https://hôte[/chemin]`, sans `?` ni `#`, barre finale facultative (retirée) ; la
+page appelle alors `<url>/v1/etat` et `<url>/v1/signalement`, et l'origine (`https://hôte`) entre
+dans `connect-src`. Sans l'option, le jeton `__SIGNALEMENTS_URL__` est vide : aucune requête, aucun
+bouton, aucun badge, l'option du plan est cachée et aucun hôte n'est ajouté à la CSP (vérifié par la
+recette : compteur de requêtes à zéro).
+
+**Anonymat** : l'application n'envoie que l'identifiant de la station, le carburant et l'état —
+jamais la position, jamais le garage, jamais d'identifiant d'appareil ; le service ne pose aucun
+cookie (voir `worker/README.md`, « Confidentialité, en cinq lignes »). Le journal local
+`fuelpilot:signalements` (station|carburant → date) ne quitte pas l'appareil.
+
+**Règles côté page** : badge dès un signalement (un « vide » prime sur un « dispo ») ; évitement
+dans le plan = au moins 1 signalement « vide » de moins de 12 h et aucun « ok » plus récent (le
+service remet `vide` à zéro) ; le plan se calcule sur les candidates restantes, et si plus aucun
+plan ne passe sans elles (au détour courant) il les garde et le dit. « Pompe vide » pose aussi la
+correction locale (station grisée pour vous, comme « Corriger → Pompe vide ») ; « De nouveau
+dispo » la retire. En cas d'échec du partage (429, panne), le constat reste gardé sur l'appareil et
+le message le dit.
+
+```bash
+node --test src/*.test.js                       # dont src/signalements.test.js
+python3 generate.py --sans-snapshot --out /tmp/sans.html
+python3 generate.py --sans-snapshot --signalements-url https://signalements.test --out /tmp/avec.html
+node recette/signalements.js /tmp/sans.html /tmp/avec.html recette/captures   # Playwright + Chromium
+```
+
+La recette simule tout par `route` (flux des prix, géocodage, itinéraire, service) : URL non
+configurée → aucune requête ; badges ; fiche (deux boutons par carburant ≥ 44 px, corps exact du
+POST, confirmation, délai de 6 h, 429) ; plan (candidate évitée avant `optimiserPlan`, carte-héros,
+option, évitement levé). Captures dans `recette/captures/`. Le service réel n'est pas appelé.
+
 ## Sources et licences
 
 - Prix : [data.economie.gouv.fr](https://data.economie.gouv.fr/explore/dataset/prix-des-carburants-en-france-flux-instantane-v2/) (Licence Ouverte).
@@ -321,6 +396,10 @@ sprites en `fetch` (`connect-src`) et son worker en `blob:` (`worker-src`).
   l'équateur ; ces stations sont ignorées à l'ingestion (coordonnée à 0 ou hors de l'enveloppe
   latitude 27–44, longitude −19–5) et comptées (« n sans position ignorées »). Le snapshot de
   repli embarqué reste français.
+- Signalements partagés : des constats humains, sans vérification (un signalement vaut un avis,
+  pas une mesure) ; 48 h de mémoire côté service, 12 h d'évitement dans le plan ; disponibles
+  seulement si la page a été générée avec `--signalements-url` et servie depuis l'origine autorisée
+  par le service (CORS) ; stations seulement, jamais les bornes de recharge.
 - `file://` : Firefox y refuse la géolocalisation et cloisonne le stockage par
   fichier — héberger en https règle les deux.
 - 400 éléments affichés par zone au maximum, stations et bornes confondues (annoncé à

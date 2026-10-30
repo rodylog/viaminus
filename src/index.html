@@ -189,7 +189,13 @@ __APP_CSS__
     <p id="fsAdresse" class="adresse"></p>
     <p id="fsInfos" class="infos"></p>
     <ul id="fsCarbs" class="fuels"></ul>
+    <p id="fsSigMsg" class="sig-msg" role="status" aria-live="polite" hidden></p>
     <p class="note">Dates = dernier relevé déclaré par la station ; en rouge au-delà de 4 jours.</p>
+    <!-- Signalements partages (30/10/2026) : visible seulement quand le service est configure a la generation -->
+    <p id="fsSigNote" class="note" hidden>« Pompe vide » et « De nouveau dispo » partagent votre constat avec les autres
+      utilisateurs pendant 48 h, sans compte : seuls l'identifiant de la station, le carburant et l'état sont envoyés —
+      jamais votre position, ni votre véhicule, ni un identifiant de votre appareil. Un signalement par station et
+      carburant toutes les 6 h.</p>
     <div class="actions">
       <button class="btn primaire" id="fsAller" type="button"><span data-ico="navigation"></span> Y aller</button>
       <button class="btn" id="fsCopier" type="button"><span data-ico="copier"></span> Copier l'adresse</button>
@@ -479,6 +485,9 @@ __APP_CSS__
       <small>les 10 % les plus chères du secteur (60 km autour du repère) disparaissent de la carte et de la liste</small></label>
     <label class="inter grande" id="bornesVisiblesLbl"><input type="checkbox" id="bornesVisibles" role="switch"> Afficher les bornes électriques
       <small id="bornesVisiblesNote">en plus des stations, pour un véhicule thermique (toujours affichées pour un véhicule électrique)</small></label>
+    <!-- Signalements partages (30/10/2026) : cachee quand le service n'est pas configure a la generation -->
+    <label class="inter grande" id="eviterVidesLbl" hidden><input type="checkbox" id="eviterVides" role="switch" checked> Éviter les pompes signalées vides (12 h)
+      <small>le plan de pleins écarte les stations dont la pompe a été signalée vide par d'autres utilisateurs il y a moins de 12 h ; si le trajet devient infaisable sans elles, il les garde et le dit</small></label>
     <div class="choix">
       <button type="button" class="choix-item" id="optPosition"><span data-ico="position"></span> Point de repère… <small>ma position, sur la carte, une adresse</small></button>
     </div>
@@ -536,6 +545,16 @@ __APP_CSS__
       <li><b>Partager</b> : « Partager le plan » donne un lien <code>#trajet=départ|arrivée|détour|options&amp;veh=…</code>
         (détour = 1, 2, 5, 10 ou 20 km de la route au plus, le lien garde le détour choisi ; départ vide = « Ma position »,
         jamais une coordonnée) ; la fiche véhicule se partage par <code>#veh=…</code>.</li>
+      <li><b>Signalements partagés « pompe vide »</b> : le flux officiel ne sait pas qu'une pompe est vide ; les personnes
+        sur place, si. Dans la fiche d'une station, sous chaque carburant, « Pompe vide » et « De nouveau dispo » envoient
+        votre constat à un petit service anonyme ; la liste et la fiche affichent alors un badge
+        <span class="badge badge-sig vide">E85 signalé vide il y a 2 h (3)</span> ou
+        <span class="badge badge-sig dispo">E85 de nouveau dispo il y a 40 min</span> (48 h, puis oubli). Le plan de
+        pleins écarte les pompes signalées vides depuis moins de 12 h (option « Éviter les pompes signalées vides », activée
+        d'office) et dit combien il en a écarté ; s'il n'y a plus de plan possible sans elles, il les garde et le dit.
+        Ce qui part : l'identifiant de la station, le carburant, l'état — rien d'autre : ni votre position, ni votre
+        véhicule, ni un identifiant d'appareil, ni cookie. Un signalement par station et carburant toutes les 6 h, cinq par
+        heure. Quand le service n'est pas configuré dans la page, rien n'est envoyé ni affiché.</li>
       <li><b>Assistant</b> : au premier lancement, trois écrans (véhicule, position, c'est prêt) ; la conso peut
         être estimée d'après le catalogue ADEME Car Labelling (médianes par catégorie, E85 = essence × 1,25).
         Accessible ensuite par le bouton « Assistant » du garage.</li>

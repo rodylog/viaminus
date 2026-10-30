@@ -615,22 +615,40 @@ function renduCarburant(){
       const lkm = conso / 100;
       const carbPlan = sel[0];               // le plan se calcule sur le 1er carburant coche
       // Candidats le long de la boucle : une occurrence par position (aller, retour).
-      const candTous = [];
+      const candComplet = [];
       DATA.forEach(x => {
         if(!x.occ || !x.occ.length) return;
         const v = pick(x, sel);
         if(!v) return;
         const fige = prixFige(x, v.lignes.map(l => l.ref));
-        x.occ.forEach(o => candTous.push({s: x, v, km: o.km, e: o.d, p: v.lignes[0].prix, fige, risque: fige ? RISQUE_FIGE : 0}));
+        x.occ.forEach(o => candComplet.push({s: x, v, km: o.km, e: o.d, p: v.lignes[0].prix, fige, risque: fige ? RISQUE_FIGE : 0}));
       });
-      candTous.sort((a,b) => a.km - b.km);
-      const cand = candTous.filter(c => c.e <= larg);
+      candComplet.sort((a,b) => a.km - b.km);
       // Carburant deja a bord (« Réservoir au départ ») : compte au prix du depart, le MEME pour
       // toutes les largeurs — sinon les choix de detour se comparaient sur des bases differentes
       // (banc du 26/10/2026, Lodeve > Orleans : « 20 km » gagnait sur ce seul artefact).
-      const pdBord = aBord == null ? undefined
-        : (prixBout(candTous, c => c.km <= 15 && !c.risque) ?? prixBout(candTous, c => c.km <= 15) ?? undefined);
-      const optsPlan = pdBord != null ? {g0, pd: pdBord} : {g0};
+      const optsDe = cw => {
+        const pd = aBord == null ? undefined
+          : (prixBout(cw, c => c.km <= 15 && !c.risque) ?? prixBout(cw, c => c.km <= 15) ?? undefined);
+        return pd != null ? {g0, pd} : {g0};
+      };
+      // Pompes signalees vides par d'autres utilisateurs (signalements partages, option « Éviter les
+      // pompes signalées vides », 12 h) : retirees des candidates AVANT optimiserPlan — plan.js
+      // inchange. Si, sans elles, aucun plan ne passe avec ce detour alors qu'avec elles si, le plan
+      // se recalcule avec elles et le dit (evitementLeve) ; infaisable des deux cotes : l'ecran
+      // « infaisable » habituel, calcule sans elles.
+      const tSig = Date.now();
+      const sigVide = c => c.v.lignes.some(l => aEviter(sigEtat(c.s), l.ref, tSig));
+      const evitees = eviterVidesActif() ? candComplet.filter(sigVide) : [];
+      let candTous = candComplet, evitementLeve = false;
+      if(evitees.length){
+        const sans = candComplet.filter(c => !sigVide(c));
+        const sansPlan = optimiserPlan(sans.filter(c => c.e <= larg), A, total, lkm, optsDe(sans)).plan;
+        if(sansPlan === null && optimiserPlan(candComplet.filter(c => c.e <= larg), A, total, lkm, optsDe(candComplet)).plan !== null) evitementLeve = true;
+        else candTous = sans;
+      }
+      const cand = candTous.filter(c => c.e <= larg);
+      const optsPlan = optsDe(candTous);
       const r = optimiserPlan(cand, A, total, lkm, Object.assign({utiles: true}, optsPlan));
       const plan = r.plan;
       utilesPlan = r.utiles || null;
@@ -759,6 +777,22 @@ function renduCarburant(){
       const alerteFige = c => !c.fige ? null : el('span', 'lt-alerte', svg('alerte'), c.fige.muette
         ? ` station muette : aucun prix déclaré depuis le ${jour(c.fige.date)}, peut-être fermée — à vérifier avant d'y aller`
         : ` prix figé depuis le ${jour(c.fige.date)} alors que la station déclare ses autres carburants : à vérifier avant d'y aller`);
+      // Pompe signalee vide par d'autres utilisateurs sur une etape du plan (evitement leve, option
+      // coupee, ou signalement de plus de 12 h) : dit en toutes lettres, jamais par la couleur seule.
+      const alerteSig = c => {
+        const a = c.v.lignes.map(l => sigDe(c.s, l.ref)).find(x => x && +x.vide >= 1);
+        return !a ? null : el('span', 'lt-alerte', svg('alerte'), ` ${libelle(a, tSig)} par d'autres utilisateurs — vérifiez avant d'y aller`);
+      };
+      // Candidates ecartees du plan et pourquoi (carte-heros) ; evitement leve : avertissement.
+      const noteEvitees = () => {
+        if(!evitees.length) return null;
+        const noms = [...new Set(evitees.map(c => nomVille(c.s)))], n = noms.length;
+        const liste = noms.slice(0, 3).join(', ') + (n > 3 ? ` et ${n - 3} autre${n > 4 ? 's' : ''}` : '');
+        if(evitementLeve) return el('p', 'heros-note ko', svg('alerte'),
+          ` ${n} station${n > 1 ? 's' : ''} signalée${n > 1 ? 's' : ''} vide${n > 1 ? 's' : ''} par d'autres utilisateurs (${liste}) : sans elle${n > 1 ? 's' : ''}, aucun plan ne passe avec ce détour — le plan ${n > 1 ? 'les' : 'la'} garde, vérifiez avant d'y aller.`);
+        return el('p', 'heros-note', svg('info'),
+          ` ${n} station${n > 1 ? 's' : ''} écartée${n > 1 ? 's' : ''} du plan : pompe signalée vide par d'autres utilisateurs il y a moins de ${SIG_FENETRE_H} h (${liste}) — option « Éviter les pompes signalées vides ».`);
+      };
       const repli = (c, portee) => {
         let best = null;
         candTous.forEach(x => {
@@ -791,7 +825,7 @@ function renduCarburant(){
         ol.append(item('lt-depart', {plein: true, txt: ''}, aBord != null ? `Départ · réservoir ≈ ${Math.round(aBord)} km${aBordL ? ` (${aBordBrut} L)` : ''}` : 'Départ · plein',
           aBord != null ? [] :
           depart ? [[nomVille(depart.s), ' · km ', String(Math.round(depart.km)), ' · ', ...chipPrix(depart), datePrix(depart)],
-                    alerteFige(depart), secours(depart, 30)]
+                    alerteFige(depart), alerteSig(depart), secours(depart, 30)]
                  : ['aucune station à moins de 15 km du départ avec ce détour — partez le réservoir plein'],
           aBord == null && depart ? depart.s : null));
         const etapes = plan || [];
@@ -801,7 +835,7 @@ function renduCarburant(){
             [[`km ${Math.round(e.km)} · `, ...chipPrix(e), datePrix(e)],
              `${e.plein ? 'le plein' : 'juste ce qu\'il faut'} : ≈ ${Math.round(e.litres)} L (${euros(e.p * lkm * e.q)}) · à bord en arrivant ≈ ${Math.round(e.arrivee + reserve)} km`,
              `détour ${(2 * e.e).toFixed(1).replace('.', ',')} km (+${euros(2 * e.e * lkm * e.p)}) · ≈ ${Math.round(minutes(e))} min`,
-             alerteFige(e), secours(e, e.arrivee + reserve)],
+             alerteFige(e), alerteSig(e), secours(e, e.arrivee + reserve)],
             e.s));
         });
         if(ROUTE_AR){
@@ -817,7 +851,7 @@ function renduCarburant(){
             [`km ${Math.round(total)} · autonomie restante ≈ ${restante(total)} km`]));
           ol.append(item('lt-retour', {pause: true, txt: ''}, 'Retour — plein conseillé à l\'arrivée',
             pleinArrivee ? [[nomVille(pleinArrivee.s), ' · km ', String(Math.round(pleinArrivee.km)), ' · ', ...chipPrix(pleinArrivee), datePrix(pleinArrivee)],
-                            alerteFige(pleinArrivee)]
+                            alerteFige(pleinArrivee), alerteSig(pleinArrivee)]
                          : ['aucune station à moins de 15 km de l\'arrivée avec ce détour'],
             pleinArrivee ? pleinArrivee.s : null));
         }
@@ -889,7 +923,7 @@ function renduCarburant(){
         actions.append(bouton('btn', 'Revoir l\'autonomie', () => ouvrirGarage('autonomie'), 'garage'));
         heros.push(el('div', 'heros-etat ko', svg('alerte'), ' ', el('b', null, detours.length ? 'Trajet impossible sans détour' : 'Trajet infaisable avec cette autonomie'),
           ` — ${Math.round(A)} km utiles pour ${Math.round(total)} km : avec les stations à ${larg} km de la route au plus, aucune suite d'arrêts ne passe.`, actions));
-        heros.push(choixDetour(), rappel);
+        heros.push(choixDetour(), rappel, noteEvitees());
         resume = `Plan de pleins : trajet infaisable avec ${Math.round(A)} km d'autonomie utile et les stations à ${larg} km de la route au plus.`;
       }else if(!plan.length){
         // Etat : aucun arret necessaire.
@@ -897,7 +931,7 @@ function renduCarburant(){
           ` — ${Math.round(total)} km pour ${Math.round(g0)} km utiles${aBord != null ? ' dans le réservoir au départ : ce que vous avez suffit.' : ' : un plein au départ suffit.'}`));
         heros.push(chiffre());
         heros.push(el('p', 'heros-sous', '0 arrêt · ', ligneEco()));
-        heros.push(choixDetour(), rappel, ligneTemps());
+        heros.push(choixDetour(), rappel, noteEvitees(), ligneTemps());
         const lst = [...list].filter(o => moinsCheres.has(o.s)).sort((a,b) => a.v.p - b.v.p || a.s.ecart - b.s.ecart);
         if(lst.length){
           const ul = el('ul', 'liste-min');
@@ -908,7 +942,7 @@ function renduCarburant(){
       }else{
         heros.push(chiffre());
         heros.push(el('p', 'heros-sous', `${plan.length} arrêt${plan.length > 1 ? 's' : ''} · ≈ ${Math.round(tempsTotal)} min · `, ligneEco()));
-        heros.push(choixDetour(), rappel, ligneTemps());
+        heros.push(choixDetour(), rappel, noteEvitees(), ligneTemps());
         resume = `Plan de pleins : ${plan.length} arrêt${plan.length > 1 ? 's' : ''}${voyage != null ? `, carburant du voyage ${euros(voyage)}` : ''}` +
                  (eco && Math.abs(eco.economie) >= 0.05 ? `, ${eco.economie > 0 ? 'économie' : 'surcoût'} de ${euros(Math.abs(eco.economie))} par rapport au plus cher du trajet` : '') + '.';
       }
@@ -959,7 +993,8 @@ function renduCarburant(){
       ? `<span class="pill" style="background:${couleur(v.p, refTotal, miniTotAff)}">${v.p.toFixed(3)} €</span>` : '') + chips;
     const et = etapesStation.get(s), mc = moinsCheres.has(s), ex = extremites.get(s);
     const badges = (ex ? `<span class="badge">${ico('pompe')} ${ex}</span> ` : '') +
-      (et ? `<span class="badge">${ico('pompe')} Étape${et.length > 1 ? 's' : ''} ${et.join(' · ')}</span> ` : mc ? `<span class="badge badge-min">Moins chère</span> ` : '');
+      (et ? `<span class="badge">${ico('pompe')} Étape${et.length > 1 ? 's' : ''} ${et.join(' · ')}</span> ` : mc ? `<span class="badge badge-min">Moins chère</span> ` : '') +
+      sigBadge(s, v.lignes.map(l => l.ref));
     const li = document.createElement('li');
     li.innerHTML = `<button type="button" class="carte${et || mc || ex ? ' etape' : ''}" aria-haspopup="dialog">`+
       `<span class="ville">${badges}${badgePays(s)}${s.ville} <span class="cp">${s.cp}</span></span>`+
@@ -1044,9 +1079,13 @@ function ouvrirStation(o, origine){
     return `<li class="${utilises.includes(k) ? 'hi' : ''}${ko ? ' ko' : ''}"><span>${l}${etat}</span>`+
            `<span class="dt${q.vieux ? ' vieux' : ''}">${c && c.prix != null ? `vu à ${hhmm(c.t)}` : q.txt}</span>`+
            `<b>${s.prix[k].toFixed(3)} €</b>`+
-           `<button type="button" class="fs-edit" data-k="${k}" aria-label="Corriger : ${l}">${ico('crayon')}</button></li>`;
+           `<button type="button" class="fs-edit" data-k="${k}" aria-label="Corriger : ${l}">${ico('crayon')}</button>`+
+           sigLigne(s, k, l) + `</li>`;
   }).join('') || '<li>Aucun prix déclaré.</li>';
   $('fsCarbs').querySelectorAll('.fs-edit').forEach(b => b.onclick = () => editerCarburant(s, b.dataset.k, b.closest('li')));
+  $('fsCarbs').querySelectorAll('.sig-btn').forEach(b => b.onclick = () => signaler(s, b.dataset.k, b.dataset.etat, b));
+  $('fsSigNote').hidden = !SIG_ACTIF || !idSignalable(s.id);
+  sigMessageRendu();
   ouvrirFeuille('ficheStation', origine);
 }
 function editerCarburant(s, k, li){
@@ -1425,6 +1464,145 @@ function fusionnerES(fr, es, nZones){
 }
 const etatES = () => ES_KO ? ' · <span class="ko">prix espagnols indisponibles</span>' : '';
 
+// ---------- Signalements partagés « pompe vide » (src/signalements.js, partie 2, 30/10/2026) ----------
+// Le flux officiel ne sait pas qu'une pompe est vide ; les personnes sur place, si (Lodeve, 26/10/2026).
+// Un service minimal et anonyme (Cloudflare Worker + base D1, branche claude/signalements-worker,
+// worker/README.md) recoit « Pompe vide » / « De nouveau dispo » et sert l'agregat par station et
+// carburant sur 48 h. Hote configure A LA GENERATION (generate.py --signalements-url, jeton
+// __SIGNALEMENTS_URL__) : vide = fonction desactivee, aucune requete, aucun hote dans la CSP, rien
+// d'affiche. Anonymat : la page n'envoie QUE l'identifiant de la station, le carburant et l'etat —
+// jamais la position, jamais le garage, jamais d'identifiant d'appareil (le service ne pose aucun
+// cookie). Echec reseau = silence : les badges s'effacent, le reste ne change pas.
+const SIGNALEMENTS_URL = "__SIGNALEMENTS_URL__";
+const SIG_ACTIF = /^https:\/\//.test(SIGNALEMENTS_URL);
+const SIG_CACHE = new Map();   // id de station -> {t, etat} ; etat = {e85: {vide, ok, dernier}, …} ou null (rien sur 48 h)
+let SIG_JOURNAL = sigJournalLu();   // {"<station>|<carburant>": t} : un signalement par 6 h (quota du service)
+function sigJournalLu(){
+  try{ return purgerJournal(JSON.parse(localStorage.getItem(CLE_SIGNALEMENTS)), Date.now()); }
+  catch(e){ return {}; }
+}
+function sigJournalEcrit(j){
+  SIG_JOURNAL = j;
+  try{ localStorage.setItem(CLE_SIGNALEMENTS, JSON.stringify(j)); }catch(e){ /* stockage refuse */ }
+}
+// Agregat connu d'une station, quelle que soit sa fraicheur (un agregat de deux minutes vaut mieux
+// que rien ; le cache ne borne que les requetes) ; null sinon.
+const sigEtat = s => { const c = SIG_CACHE.get(s.id); return c ? c.etat : null; };
+const sigDe = (s, k) => { const e = sigEtat(s); return e && e[k] && typeof e[k] === 'object' ? e[k] : null; };
+// Agregats des stations affichees et des candidates du plan (DATA), par lots de 400, cache 60 s.
+// `mien` = numero du chargement (seq) : une reponse d'une emprise depassee est rangee au cache mais
+// ne redessine rien, comme pour le flux. Echec (reseau, 4xx, 5xx, JSON illisible) : silence, nouvel
+// essai au prochain chargement. Jamais appele quand l'URL n'est pas configuree.
+async function chargerSignalements(stations, mien){
+  if(!SIG_ACTIF) return;
+  const t = Date.now();
+  const lots = lotsIds(stations.map(s => s.id).filter(id => { const c = SIG_CACHE.get(id); return !c || t - c.t >= SIG_CACHE_MS; }));
+  if(!lots.length) return;
+  let change = false;
+  await Promise.all(lots.map(async lot => {
+    try{
+      const r = await fetch(`${SIGNALEMENTS_URL}/v1/etat?ids=${lot.join(',')}`, {signal: AbortSignal.timeout(10000)});
+      if(!r.ok) return;
+      const j = await r.json();
+      if(!j || typeof j !== 'object' || Array.isArray(j)) return;
+      const t2 = Date.now();
+      lot.forEach(id => {
+        const e = Object.prototype.hasOwnProperty.call(j, id) && j[id] && typeof j[id] === 'object' ? j[id] : null;
+        const avant = SIG_CACHE.get(id);
+        if(e || (avant && avant.etat)) change = true;
+        SIG_CACHE.set(id, {t: t2, etat: e});
+      });
+    }catch(e){ /* service muet : rien a afficher, rien ne casse */ }
+  }));
+  if(change && mien === seq) rendu();
+}
+// Badge sobre de la liste et des cartes : « E85 signalé vide il y a 2 h (3) » (rouge) ou « E85 de
+// nouveau dispo il y a 40 min » (vert) — couleur ET texte, icone Lucide ; un « vide » prime.
+function sigBadge(s, refs){
+  if(!SIG_ACTIF) return '';
+  const t = Date.now();
+  const l = refs.map(k => ({k, a: sigDe(s, k)})).filter(o => o.a && libelle(o.a, t));
+  if(!l.length) return '';
+  const o = l.find(x => +x.a.vide >= 1) || l[0], vide = +o.a.vide >= 1;
+  return `<span class="badge badge-sig ${vide ? 'vide' : 'dispo'}">${ico(vide ? 'alerte' : 'coche')} ${COURT[o.k] || esc(o.k)} ${esc(libelle(o.a, t))}</span> `;
+}
+// Fiche station, sous chaque carburant vendu : l'etat partage, puis « Pompe vide » et « De nouveau
+// dispo » (44 px), desactives avec le delai restant quand ce carburant a deja ete signale ici
+// depuis moins de 6 h (journal local, meme regle que le quota du service).
+function sigLigne(s, k, l){
+  if(!SIG_ACTIF || !idSignalable(s.id) || !carburantSignalable(k)) return '';
+  const t = Date.now(), a = sigDe(s, k), txt = a ? libelle(a, t) : '', vide = !!a && +a.vide >= 1;
+  const reste = delaiRestant(SIG_JOURNAL, s.id, k, t);
+  const dis = reste > 0 ? ' disabled' : '';
+  return `<span class="sig-ligne">` +
+    (txt ? `<span class="sig-lbl ${vide ? 'vide' : 'dispo'}">${ico(vide ? 'alerte' : 'coche')} ${esc(txt)}</span>` : '') +
+    `<span class="sig-btns">` +
+    `<button type="button" class="sig-btn vide" data-k="${k}" data-etat="vide"${dis} aria-label="Signaler la pompe ${l} vide">${ico('alerte')} Pompe vide</button>` +
+    `<button type="button" class="sig-btn ok" data-k="${k}" data-etat="ok"${dis} aria-label="Signaler ${l} de nouveau disponible">${ico('coche')} De nouveau dispo</button></span>` +
+    (reste > 0 ? `<span class="sig-attente">déjà signalé depuis cet appareil · de nouveau possible ${libelleDelai(reste)}</span>` : '') +
+    `</span>`;
+}
+// Confirmation ou erreur, montree dans la fiche de CETTE station (elle survit au redessin de la fiche).
+let SIG_MSG = null, sigMsgTempo = null;
+function sigMessage(s, texte, ko){
+  SIG_MSG = {id: s.id, texte, ko};
+  clearTimeout(sigMsgTempo);
+  if(!ko) sigMsgTempo = setTimeout(() => { SIG_MSG = null; sigMessageRendu(); }, 8000);
+  sigMessageRendu();
+}
+function sigMessageRendu(){
+  const el = $('fsSigMsg');
+  const m = SIG_MSG && STATION && SIG_MSG.id === STATION.id ? SIG_MSG : null;
+  el.hidden = !m;
+  el.textContent = m ? m.texte : '';
+  el.classList.toggle('ko', !!(m && m.ko));
+}
+// Envoi d'un signalement : POST {station, carburant, etat} — rien d'autre. 201 : agregat de la
+// station range au cache, journal local note, merci discret ; 429 : message humain (quota du
+// service) ; autre echec : message. Dans tous les cas la correction LOCALE suit votre observation
+// (« vide » : la station est grisee pour vous comme avec « Corriger », « ok » : elle revient) —
+// corriger() redessine la carte, la liste et rouvre la fiche.
+async function signaler(s, k, etat, bouton){
+  if(!SIG_ACTIF || !peutSignaler(SIG_JOURNAL, s.id, k, Date.now())) return;
+  $('fsCarbs').querySelectorAll('.sig-btn').forEach(b => { b.disabled = true; });
+  sigMessage(s, 'envoi du signalement…', false);
+  let r = null;
+  try{
+    r = await fetch(`${SIGNALEMENTS_URL}/v1/signalement`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({station: s.id, carburant: k, etat}), signal: AbortSignal.timeout(10000)});
+  }catch(e){ r = null; }
+  const nom = COURT[k] || k;
+  if(r && r.status === 201){
+    let j = null;
+    try{ j = await r.json(); }catch(e){ j = null; }
+    if(j && typeof j === 'object' && !Array.isArray(j))
+      SIG_CACHE.set(s.id, {t: Date.now(), etat: j[s.id] && typeof j[s.id] === 'object' ? j[s.id] : null});
+    sigJournalEcrit(noterSignalement(SIG_JOURNAL, s.id, k, Date.now()));
+    sigMessage(s, etat === 'vide' ? `Merci : pompe ${nom} signalée vide, partagée avec les autres utilisateurs pendant 48 h.`
+                                  : `Merci : ${nom} signalé de nouveau disponible, partagé avec les autres utilisateurs.`, false);
+  }else if(r && r.status === 429){
+    sigMessage(s, `Gardé sur cet appareil, mais pas partagé : trop de signalements pour le moment (au plus 5 par heure, et un par station et carburant toutes les 6 h). Réessayez plus tard.`, true);
+  }else if(r){
+    sigMessage(s, `Gardé sur cet appareil, mais pas partagé : le service a refusé le signalement (erreur ${r.status}).`, true);
+  }else{
+    sigMessage(s, 'Gardé sur cet appareil, mais pas partagé : service de signalements injoignable. Réessayez plus tard.', true);
+  }
+  if(etat === 'vide' && !signaleVide(s, k)) corriger(s, [k], {vide: true});
+  else if(etat === 'ok' && signaleVide(s, k)) corriger(s, [k], null);
+  else{
+    rendu();
+    if(STATION && STATION.id === s.id && !$('ficheStation').hidden)
+      ouvrirStation({s: DATA.find(x => x.id === s.id) || RUPTURES.find(x => x.id === s.id) || s, v: null});
+  }
+}
+// Option du plan : « Éviter les pompes signalées vides (12 h) », activee par defaut, visible
+// seulement quand le service est configure (sans lui, rien a eviter).
+$('eviterVidesLbl').hidden = !SIG_ACTIF;
+if(REGL.eviterVides === false) $('eviterVides').checked = false;
+$('eviterVides').onchange = () => { REGL.eviterVides = $('eviterVides').checked; reglagesBruts(); rendu(); };
+const eviterVidesActif = () => SIG_ACTIF && $('eviterVides').checked;
+
 // Stations en rupture du carburant choisi. Le flux vide le prix pendant la rupture :
 // la station sort de la requete principale et semblait « oubliee ». Constate le
 // 26/10/2026 : Le Bosc (A75), E85 en rupture depuis le 04/09, Waze affichait encore
@@ -1544,6 +1722,7 @@ async function charger(){
     RUPTURES = [];
     etatPrix = '<span class="ko">hors ligne</span> — relevé du ' + SNAP_DATE + etatES();
   }
+  chargerSignalements(DATA, mien);   // agregats « pompe vide » : redessine a leur arrivee (si l'emprise n'a pas change)
   rendu();
   chargerBornes();   // vehicule thermique : seulement si l'option « Afficher les bornes » est cochee
 }
