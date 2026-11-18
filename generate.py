@@ -14,7 +14,8 @@ navigateur, a defaut sur la France entiere (clic droit pour poser le repere).
 
 Usage :
     ./generate.py                    # ecrit ~/Documents/fuelpilot.html
-    ./generate.py --open             # genere puis ouvre dans le navigateur
+    ./generate.py --open             # genere puis ouvre dans le navigateur, servie en local
+                                     # (http://127.0.0.1:8765/, Ctrl+C pour arreter)
     ./generate.py --lat 48.85 --lon 2.35 --rayon 15   # centre du snapshot de repli
     ./generate.py --sans-snapshot    # pas d'appel au flux (snapshot de repli vide)
     ./generate.py --signalements-url https://viaminus-signalements.<compte>.workers.dev
@@ -29,6 +30,7 @@ import argparse
 import base64
 import gzip
 import hashlib
+import http.server
 import json
 import os
 import re
@@ -36,7 +38,7 @@ import sys
 import urllib.request
 import webbrowser
 from datetime import datetime
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 API = ("https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/"
        "prix-des-carburants-en-france-flux-instantane-v2/records")
@@ -212,6 +214,67 @@ def assembler():
     return html
 
 
+# --open : la page est servie en http://127.0.0.1 plutot qu'ouverte en file://. En file://,
+# Firefox refuse la geolocalisation (reservee aux contextes securises), donne a chaque fichier
+# son propre stockage (garage perdu des que le fichier change de nom ou de dossier) et la page
+# n'atteint ni les bornes (data/irve/) ni le controle de nouvelle version. 127.0.0.1 est un
+# contexte securise pour tous les navigateurs ; port FIXE = meme origine d'une fois sur
+# l'autre, donc meme garage.
+PORT_LOCAL = 8765
+
+
+def chemins_servis(out):
+    """Ce que le service local montre : la page et data/irve/*.json a cote d'elle, rien d'autre
+    (le dossier de sortie par defaut est ~/Documents)."""
+    nom = os.path.basename(out)
+    return lambda chemin: chemin in ("/", "/" + nom) or re.fullmatch(r"/data/irve/[\w-]+\.json", chemin)
+
+
+def ouvrir_en_local(out, port):
+    dossier = os.path.dirname(os.path.abspath(out))
+    url = f"http://127.0.0.1:{port}/{quote(os.path.basename(out))}"
+    servi = chemins_servis(out)
+
+    class Gestionnaire(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kw):
+            super().__init__(*args, directory=dossier, **kw)
+
+        def send_head(self):
+            chemin = unquote(self.path.split("?", 1)[0].split("#", 1)[0])
+            if not servi(chemin):
+                self.send_error(404)
+                return None
+            if chemin == "/":
+                self.path = "/" + os.path.basename(out)
+            return super().send_head()
+
+        def end_headers(self):
+            self.send_header("Cache-Control", "no-store")   # page regeneree = page relue
+            super().end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    try:
+        serveur = http.server.ThreadingHTTPServer(("127.0.0.1", port), Gestionnaire)
+    except OSError:
+        # Port pris : le plus souvent un --open precedent encore actif, qui sert deja le
+        # meme dossier ; la page regeneree y est relue (no-store).
+        webbrowser.open(url)
+        print(f"port {port} deja occupe (un --open precedent ?) : {url} ouvert tel quel ; "
+              f"sinon relancer avec --port")
+        return
+    webbrowser.open(url)
+    print(f"ouvert dans le navigateur : {url} — Ctrl+C pour arreter le service local "
+          f"(la page ouverte continue de marcher, sans les bornes)")
+    try:
+        serveur.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        serveur.server_close()
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -224,7 +287,10 @@ def main():
     ap.add_argument("--rayon", type=int, default=25, help="rayon interroge (km)")
     ap.add_argument("--out", default=None)  # defaut : ~/Documents/fuelpilot.html
     ap.add_argument("--open", action="store_true",
-                    help="ouvrir la page dans le navigateur par defaut")
+                    help="ouvrir la page dans le navigateur par defaut, servie en local "
+                         "(http://127.0.0.1:PORT/) et non en file://")
+    ap.add_argument("--port", type=int, default=PORT_LOCAL,
+                    help=f"port du service local de --open (defaut {PORT_LOCAL})")
     ap.add_argument("--sans-snapshot", action="store_true",
                     help="ne pas interroger le flux : snapshot de repli vide")
     ap.add_argument("--signalements-url", default="",
@@ -271,8 +337,7 @@ def main():
     print(f"{sw} — service worker — {octets / 1024:.0f} Ko (a publier a cote de la page avec pwa/)")
 
     if a.open:
-        webbrowser.open("file://" + out)
-        print("ouvert dans le navigateur")
+        ouvrir_en_local(out, a.port)
 
 
 if __name__ == "__main__":

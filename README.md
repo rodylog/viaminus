@@ -245,8 +245,17 @@ l'application à `/guide.html`.
 
 ```bash
 ./generate.py            # écrit ~/Documents/fuelpilot.html
-./generate.py --open     # puis l'ouvre dans le navigateur
+./generate.py --open     # puis l'ouvre dans le navigateur, servie en local
 ```
+
+`--open` (18/11/2026) ne passe plus par `file://` : la page est servie sur
+`http://127.0.0.1:8765/fuelpilot.html` (`--port` pour un autre port) tant que la commande
+tourne (Ctrl+C pour arrêter ; la page déjà ouverte continue, sans les bornes). Adresse locale
+= contexte sûr pour tous les navigateurs : sous Firefox, la géolocalisation marche et le
+garage reste le même d'une génération à l'autre (port fixe, même origine). Seuls la page et
+`data/irve/*.json` à côté d'elle sont servis, rien d'autre du dossier. Un garage créé en
+`file://` n'est pas visible à cette adresse (stockages séparés par le navigateur) : le
+repartager par son lien `#veh=` depuis l'ancienne page.
 
 Le fichier généré est autonome (MapLibre GL JS embarqué, empreintes SHA-384
 vérifiées, worker créé en `blob:`) ; seul le chargement des prix, du style et des
@@ -520,7 +529,8 @@ option, évitement levé). Captures dans `recette/captures/`. Le service réel n
   seulement si la page a été générée avec `--signalements-url` et servie depuis l'origine autorisée
   par le service (CORS) ; stations seulement, jamais les bornes de recharge.
 - `file://` : Firefox y refuse la géolocalisation et cloisonne le stockage par
-  fichier — héberger en https règle les deux ; ni installation ni hors-ligne depuis un fichier
+  fichier — héberger en https, ou ouvrir par `./generate.py --open` (servie en
+  `http://127.0.0.1`), règle les deux ; ni installation ni hors-ligne depuis un fichier
   (service worker impossible), la page marche comme avant.
 - Hors ligne (page installée ou déjà ouverte en https) : les derniers prix vus et les bornes
   déjà chargées, avec leur date ; pas de fond de carte, pas d'itinéraire, pas de géocodage
